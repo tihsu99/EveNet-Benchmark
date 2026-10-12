@@ -1,0 +1,3 @@
+# Install from the repository root in the host benchmark environment.
+# Use Python 3.12 to match the public AD recipe and the Shifter Ray cluster.
+-e .[host]

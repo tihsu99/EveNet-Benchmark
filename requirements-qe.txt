@@ -1,0 +1,3 @@
+# Install from the repository root in the existing ROOT/RooUnfold environment.
+# ROOT and RooUnfold remain externally managed.
+-e .[quantum]
