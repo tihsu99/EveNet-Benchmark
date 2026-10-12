@@ -64,11 +64,22 @@ pins can change existing package versions; run `pip check` before preflight.
 
 `requirements-qe.txt` selects `.[quantum]`: PyTorch and the Python analysis
 dependencies imported by the pinned QE evaluator. Install it into the existing
-`unfold` environment; it does not install ROOT or rebuild RooUnfold. Training
+`unfold` environment; it does not install ROOT or rebuild RooUnfold. On Python
+3.14, this profile allows PyTorch 2.9+ (below 3) and a compatible Awkward 2 release:
+PyTorch 2.6 and the compiled dependency of Awkward 2.8.1 have no Python 3.14 wheels.
+Earlier Python versions retain those recipe pins. QE evaluation runs in its own
+process and loads predictions onto the CPU, so it does not join the training Ray
+cluster. Keep the Python version used by the existing ROOT build. Training
 continues to use the selected EveNet-Full/core Shifter environment. Source paths
 for EveNet and the native analysis repositories still come from the workflow.
 The host profile covers this benchmark's AD generation-quality probe, not the
 separate upstream classifier-training or bump-hunting stages.
+
+If an earlier QE install stopped during dependency resolution, rerun the complete
+`requirements-qe.txt` installation after updating this checkout. It also installs
+base dependencies such as `huggingface_hub`; `pip check` alone does not install
+missing packages or verify that optional extras are complete. Continue to
+preflight only after both installation and `pip check` succeed.
 
 The earlier `/usr/lib64/python3.6` error came from the system Python; installing
 `tqdm` there would not provide a supported runtime. Use the explicit environment

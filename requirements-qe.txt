@@ -1,3 +1,4 @@
 # Install from the repository root in the existing ROOT/RooUnfold environment.
 # ROOT and RooUnfold remain externally managed.
+# The quantum extra selects compatible Torch/Awkward versions for Python 3.14.
 -e .[quantum]
