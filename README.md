@@ -129,7 +129,8 @@ training/evaluation entry point behind `if __name__ == "__main__"`.
 
 The supplied workflow keeps the driver/runner, Higgs evaluation, and AD native
 prediction/evaluation in `/pscratch/sd/t/tihsu/env/benchmark/bin/python` on the
-host. Training and QE/Higgs prediction explicitly use `[shifter, python3]`.
+host. Training and QE/Higgs prediction use Shifter with the `/tmp/ray` mount
+described below.
 The driver runtime is also used for the inner benchmark runner and Slurm driver;
 it must not silently switch back to the training container. Calling a host
 environment's Python from inside Shifter still runs it inside that container.
@@ -372,12 +373,51 @@ Ray's cluster resources, but each driver's local concurrency limit is independen
 
 For your interactive allocation, first start your existing Ray cluster on all
 four nodes using the same Shifter image. `salloc` reserves resources but does not
-start Ray. Then run from the benchmark checkout:
+start Ray. The host driver and containerized Ray processes must see the same
+node-local `/tmp/ray`, including the live Unix sockets. Shifter's default `/tmp`
+can be separate from the host's. In that case the driver reaches the head's TCP
+port but waits for `node_ip_address.json` and cannot access the raylet socket.
+
+Before launching any Ray services in a fresh allocation, create the mount source
+on every node, from the host:
+
+```bash
+srun --nodes="$SLURM_JOB_NUM_NODES" --ntasks="$SLURM_JOB_NUM_NODES" \
+  --ntasks-per-node=1 mkdir -p /tmp/ray
+```
+
+In every existing head/worker `srun` command, add the same Shifter volume option:
+
+```bash
+# Keep the existing srun resources, node selection, and background execution.
+shifter --volume=/tmp/ray:/tmp/ray ./start-head.sh "$head_node_ip"
+shifter --volume=/tmp/ray:/tmp/ray ./start-worker.sh "$head_node_ip:$port"
+```
+
+This assumes the inner scripts use Ray's default `/tmp/ray`; if they set a custom
+`--temp-dir`, mount that node-local directory at the same absolute path instead
+and update `runtime.python` accordingly. Do not copy the JSON file or put all
+nodes' sockets into one shared directory. The supplied workflow includes this
+volume option for subsequent training/prediction commands. Mount changes do not
+repair already-running Ray processes: use your normal cluster lifecycle to
+relaunch when existing workloads are finished. The benchmark never stops Ray.
+See [NERSC's volume-mount documentation](https://docs.nersc.gov/development/containers/shifter/how-to-use/#volume-mounting-in-shifter).
+
+On the driver node, verify that the host sees the newly started session and
+both sockets before testing the connection:
+
+```bash
+ls -l /tmp/ray/session_latest/node_ip_address.json /tmp/ray/session_latest/sockets
+/pscratch/sd/t/tihsu/env/benchmark/bin/python -m benchmark.preflight configs/workflow.yaml --ray
+```
+
+Run this from a Ray GPU node, with the existing cluster address set as below.
+Proceed only after the Ray preflight passes. Then run from the benchmark checkout:
 
 ```bash
 export RAY_ADDRESS=HEAD_IP:6379
 export PYTHONPATH="$PWD${PYTHONPATH:+:$PYTHONPATH}"
-shifter ray status --address="$RAY_ADDRESS"
+shifter --volume=/tmp/ray:/tmp/ray ray status --address="$RAY_ADDRESS"
 # Confirm 4 alive nodes, 16 GPUs, and enough CPUs (QE needs 481).
 /pscratch/sd/t/tihsu/env/benchmark/bin/python -m benchmark.workflow run configs/workflow.yaml --name plan-preview --dry-run
 /pscratch/sd/t/tihsu/env/benchmark/bin/python -m benchmark.workflow run configs/workflow.yaml --name candidate-parallel
@@ -398,8 +438,8 @@ checkpoint workflows, not their GPU allocation. Check each background command's
 exit status; a final bare `wait` does not reliably report earlier job failures.
 
 With the supplied mixed-runtime workflow, launch the driver on the host of an
-existing Ray GPU node and let `runtime.python: [shifter, python3]` enter the
-training container. Keep `runtime.image: null` so the driver stays on the host.
+existing Ray GPU node and let `runtime.python` enter the training container with
+the same Ray volume mount. Keep `runtime.image: null` so the driver stays on the host.
 A fully containerized workflow may instead use a Shifter driver and plain
 `python3` child commands, but it cannot run host-only analysis environments.
 Alternatively, `--backend slurm` submits exactly one CPU
