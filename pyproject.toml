@@ -31,6 +31,7 @@ host = [
     "vector==1.6.1",
     "numdifftools==0.9.41",
     "jetnet==0.2.5",
+    "pytz==2025.2",
     "zfit==0.22.0",
     "setuptools==78.1.0",
 ]
