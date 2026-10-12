@@ -41,12 +41,38 @@ cd ~/PycharmProjects/EveNet-Benchmark
 python3 -m pip install -e '.[classification,test]'
 ```
 
-Training additionally requires the selected EveNet-Full/core environment
-(PyTorch, Lightning, Ray, and its dependencies). QE evaluation needs the working
-ROOT/RooUnfold environment and the library path expected by the native
-`analysis_core/unfold.py`. Anomaly evaluation needs that repository's fitting,
-Awkward/vector, and JetNet dependencies. This package does not install or modify
-these external stacks.
+For the supplied mixed-runtime workflow, install the two environment-specific
+requirements from this checkout on the host (outside Shifter):
+
+```bash
+cd /global/u1/t/tihsu/EveNet-Benchmark
+/pscratch/sd/t/tihsu/env/benchmark/bin/python -m pip install -r requirements.txt
+/pscratch/sd/t/tihsu/env/benchmark/bin/python -m pip check
+/pscratch/sd/t/tihsu/env/unfold/bin/python -m pip install -r requirements-qe.txt
+/pscratch/sd/t/tihsu/env/unfold/bin/python -m pip check
+/pscratch/sd/t/tihsu/env/benchmark/bin/python -m benchmark.preflight configs/workflow.yaml
+```
+
+`requirements.txt` selects `.[host]`: the driver, Higgs evaluation and native AD
+prediction/evaluation dependencies, including Ray, Awkward/vector, numdifftools,
+JetNet and zfit. Pins follow the
+[selected public AD recipe](https://github.com/EveNet-HEP/CMSOpenData-Upsilon-AnomalyDetection/blob/ff4f16845a7919d8c3e49f29240f9d79071e2a64/requirements.txt)
+and its documented `zfit==0.22.0` installation. Use Python 3.12 for this profile;
+zfit 0.22 does not support Python 3.13. The host Python/Ray versions must match
+the existing Shifter Ray cluster (the recipe pins Ray 2.44.1). Installing these
+pins can change existing package versions; run `pip check` before preflight.
+
+`requirements-qe.txt` selects `.[quantum]`: PyTorch and the Python analysis
+dependencies imported by the pinned QE evaluator. Install it into the existing
+`unfold` environment; it does not install ROOT or rebuild RooUnfold. Training
+continues to use the selected EveNet-Full/core Shifter environment. Source paths
+for EveNet and the native analysis repositories still come from the workflow.
+The host profile covers this benchmark's AD generation-quality probe, not the
+separate upstream classifier-training or bump-hunting stages.
+
+The earlier `/usr/lib64/python3.6` error came from the system Python; installing
+`tqdm` there would not provide a supported runtime. Use the explicit environment
+executables above instead.
 
 W&B runs use `wandb_project` (default `EveNet-Benchmark`) and the team configured
 in `adaptation.logger.wandb.entity` (default `ytchou97-university-of-washington`,
@@ -143,7 +169,7 @@ detection using the pinned `tihsu/AD-Data` SB/SR dataset.
 
 ```bash
 cd ~/PycharmProjects/EveNet-Benchmark
-python3 -m pip install -e '.[classification]'
+python3 -m pip install -r requirements.txt
 # Review selected files/bytes, then download once.
 evenet-benchmark download configs/workflow.yaml --dry-run
 evenet-benchmark download configs/workflow.yaml
