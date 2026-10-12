@@ -37,13 +37,12 @@ runtime:
   shifter_args: []
 
 conditions:
-  benchmarks: [qe, exotic_higgs_cls, exotic_higgs_asn, exotic_higgs_seg]
+  benchmarks: [qe, exotic_higgs_cls, exotic_higgs_asn, exotic_higgs_seg, anomaly]
   suite_overrides:
     adaptation:
       platform: {batch_size: 512}
       options:
         Training: {total_epochs: 20, epochs: 20}
-    # Enable anomaly only after supplying its prepared SB/SR dataset.
 
 # A local checkout can replace any source: {path: /path/to/checkout}.
 # Public Git revisions and Hub revisions are pinned, not moving branches.
@@ -91,10 +90,20 @@ downloads:
     # Hub globs match slashes; explicitly omit nested systematic variations.
     ignore_patterns: ['*/*/*/*']
 
+  ANOMALY_DATA:
+    repo_id: tihsu/AD-Data
+    repo_type: dataset
+    revision: f22f837bdca3809fe1518fddc42ccc9a07e33f6e
+    local_dir: anomaly
+    allow_patterns:
+      - SB/data.parquet
+      - SB/normalization.pt
+      - SB/shape_metadata.json
+      - SR/data.parquet
+
 variables:
   HIGGS_TRAIN_DATA: '${HIGGS_DATA}/evenet-train/evenet-ma30'
   HIGGS_TEST_DATA: '${HIGGS_DATA}/evenet-test/evenet-ma30'
-  # ANOMALY_DATA: /shared/prepared-anomaly-data
 
 candidate:
   checkpoint: '${HF_MODELS}/checkpoints.20M.a4.last.ckpt'
