@@ -1,0 +1,201 @@
+schema_version: 1
+seed: 20261007
+core: ${EVENET_CORE}
+wandb_project: EveNet-Benchmark
+
+# Commands are argv lists. A container prefix is supported, for example:
+# python: [shifter, "--image=docker:avencast1994/evenet:1.5", python3]
+# analysis_python may use a different environment providing ROOT/RooUnfold/JetNet.
+execution:
+  python: [python3]
+  analysis_python: [python3]
+  wandb_mode: offline
+
+# Same adaptation budget for every candidate. Existing native task optimizer
+# settings remain in the task templates unless overridden here or per task.
+adaptation:
+  platform:
+    number_of_workers: 1
+    resources_per_worker: {CPU: 8, GPU: 1}
+    batch_size: 512
+    use_gpu: true
+  options:
+    Training:
+      total_epochs: 20
+      epochs: 20
+
+# New task heads may initialize independently. Backbone mismatches fail closed.
+# Add narrowly scoped exceptions only after inspecting load_audit.json.
+load_policy:
+  required: ["GlobalEmbedding.*", "PET.*", "ObjectEncoder.*", "PairCreator.*"]
+  allowed_missing: ["*_normalizer.*"]
+  allowed_unused: []
+
+benchmarks:
+  qe:
+    enabled: true
+    label: QE / quantum correlation
+    repository: ${QE_REPO}
+    train_yaml: ${QE_REPO}/examples/Train_example.yaml
+    predict_yaml: ${QE_REPO}/examples/Predict_example.yaml
+    normalization_asset: normalization.pt
+    data:
+      train: ["${QE_DATA}/train/*.parquet"]
+      validation: ["${QE_DATA}/val/*.parquet"]
+      evaluation: ["${QE_DATA}/test/*.parquet"]
+      train_fraction: 0.05
+      # Optional genuine unique event-ID columns, including process ID if needed.
+      # Without these, identity is source content hash + row index.
+      event_id_columns: []
+      assets:
+        normalization.pt: ${QE_DATA}/train/normalization.pt
+        shape_metadata.json: ${QE_DATA}/train/shape_metadata.json
+    evaluation:
+      kind: quantum
+      observable: Concurrence
+      trace_coefficients: [C_nn, C_rr, C_kk]
+      display:
+        - {key: trace_abs_bias, label: "Trace absolute bias", direction: min}
+        - {key: observable_abs_bias, label: "Concurrence bias", direction: min}
+        - {key: observable_uncertainty, label: "Concurrence uncertainty", direction: min, headline: true}
+        - {key: selection_efficiency, label: "Selection efficiency", direction: none}
+
+  exotic_higgs_cls: &higgs_task
+    enabled: true
+    label: Exotic Higgs / Cls
+    group: exotic_higgs
+    group_label: Exotic Higgs / head comparison
+    variant_label: Cls
+    data_group: exotic_higgs
+    repository: ${HIGGS_REPO}
+    train_yaml: ${HIGGS_REPO}/configs/train.yaml
+    predict_yaml: ${HIGGS_REPO}/configs/predict.yaml
+    # Explicit quick-probe hypothesis. Change together with the data paths.
+    template_tokens: {MASS: "30"}
+    normalization_asset: normalization.pt
+    overrides:
+      options:
+        Training:
+          Components:
+            Classification: {include: true}
+            Assignment: {include: false}
+            Segmentation: {include: false}
+          ProgressiveTraining: &higgs_schedule
+            stages:
+              - name: fixed_head_adaptation
+                epoch_ratio: 1.0
+                transition_ratio: 0.0
+                loss_weights:
+                  classification: [1.0, 1.0]
+                  assignment: [1.0, 1.0]
+                  segmentation: [1.0, 1.0]
+                train_parameters:
+                  ema_decay: [0.999, 0.999]
+                  noise_prob: [1.0, 1.0]
+                  reco_attn_mask: [0.0, 0.0]
+    data:
+      train: ["${HIGGS_TRAIN_DATA}/*.parquet"]
+      validation_fraction: 0.2
+      evaluation: ["${HIGGS_TEST_DATA}/*.parquet"]
+      train_fraction: 0.05
+      event_id_columns: []
+      assets:
+        normalization.pt: ${HIGGS_TRAIN_DATA}/normalization.pt
+        shape_metadata.json: ${HIGGS_TRAIN_DATA}/shape_metadata.json
+    evaluation:
+      kind: classification
+      score_key: classification/signal
+      score_index: 1
+      target_key: subprocess_id
+      signal_ids: [0]
+      background_ids: [-1]
+      weight_key: event_weight
+      signal_efficiency: 0.7
+      display:
+        - {key: auc, label: "Weighted AUC", direction: max, headline: true}
+        - {key: background_rejection, label: "Rejection at 70% signal", direction: max}
+        - {key: sic, label: "SIC at selected threshold", direction: max}
+
+  exotic_higgs_asn:
+    <<: *higgs_task
+    label: Exotic Higgs / Cls+Asn
+    variant_label: Cls+Asn
+    overrides:
+      options:
+        Training:
+          ProgressiveTraining: *higgs_schedule
+          Components:
+            Classification: {include: true}
+            Assignment: {include: true}
+            Segmentation: {include: false}
+
+  exotic_higgs_seg:
+    <<: *higgs_task
+    label: Exotic Higgs / Cls+Seg
+    variant_label: Cls+Seg
+    overrides:
+      options:
+        Training:
+          ProgressiveTraining: *higgs_schedule
+          Components:
+            Classification: {include: true}
+            Assignment: {include: false}
+            Segmentation: {include: true}
+
+  anomaly:
+    enabled: true
+    label: Upsilon / one-fold generation probe
+    repository: ${ANOMALY_REPO}
+    train_yaml: ${ANOMALY_REPO}/config/full_train.yaml
+    workflow_yaml: ${ANOMALY_REPO}/config/workflow.yaml
+    normalization_asset: normalization.pt
+    data:
+      train: ["${ANOMALY_DATA}/SB/data.parquet"]
+      fold: {count: 5, index: 0}
+      evaluation: ["${ANOMALY_DATA}/SR/data.parquet"]
+      train_fraction: 1.0
+      event_id_columns: []
+      assets:
+        normalization.pt: ${ANOMALY_DATA}/SB/normalization.pt
+        shape_metadata.json: ${ANOMALY_DATA}/SB/shape_metadata.json
+    evaluation:
+      kind: anomaly
+      generated_events: 50000
+      max_background: 2000
+      metric_paths:
+        calibration_magnitude: [before cut, mean_calibration_difference]
+        coverage: [after cut, cov]
+        mmd: [after cut, mmd]
+        selection_efficiency: [after cut, efficiency]
+      display:
+        - {key: calibration_magnitude, label: "Calibration magnitude", direction: min, headline: true}
+        - {key: coverage, label: "Coverage", direction: max}
+        - {key: mmd, label: "Native JetNet MMD", direction: min}
+        - {key: selection_efficiency, label: "Selection efficiency", direction: none}
+
+  grid:
+    enabled: false
+    reason: "EveNet-Lite shares core components but does not wire PairCreator/IterativeUpdate or pair-aware classification."
+
+# Optional; only used by prepare --pretraining and benchmark.pretrain.
+# Keep the architecture fixed when studying objectives or training recipes.
+pretraining:
+  train_yaml: ${PRETRAIN_YAML}
+  normalization_asset: normalization.pt
+  data:
+    train: ["${PRETRAIN_DATA}/*.parquet"]
+    validation: ["${PRETRAIN_VAL_DATA}/*.parquet"]
+    train_fraction: 0.1
+    event_id_columns: []
+    assets:
+      normalization.pt: ${PRETRAIN_DATA}/normalization.pt
+      shape_metadata.json: ${PRETRAIN_DATA}/shape_metadata.json
+  overrides:
+    platform:
+      number_of_workers: 1
+      resources_per_worker: {CPU: 8, GPU: 1}
+      batch_size: 512
+    options:
+      Training:
+        total_epochs: 5
+        epochs: 5

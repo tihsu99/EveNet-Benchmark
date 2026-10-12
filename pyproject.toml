@@ -1,0 +1,24 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "evenet-benchmark"
+version = "0.1.0"
+description = "Fixed-data checkpoint probes for EveNet"
+requires-python = ">=3.10"
+dependencies = ["PyYAML>=6", "numpy>=1.24", "pyarrow>=14", "matplotlib>=3.7", "tqdm>=4.66", "huggingface_hub>=1.0"]
+
+[project.optional-dependencies]
+classification = ["torch>=2", "scikit-learn>=1.3"]
+test = ["pytest>=8"]
+
+[tool.setuptools.packages.find]
+include = ["benchmark*"]
+
+[project.scripts]
+evenet-probe-prepare = "benchmark.prepare:main"
+evenet-probe-run = "benchmark.run:main"
+evenet-probe-pretrain = "benchmark.pretrain:main"
+evenet-probe-plot = "benchmark.plot:main"
+evenet-benchmark = "benchmark.workflow:main"
