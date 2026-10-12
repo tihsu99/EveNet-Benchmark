@@ -1,5 +1,6 @@
 schema_version: 1
 # Storage root: data/ holds shared assets; version/<name>/ holds each evaluation.
+# Checkpoints and Ray Train/Predict results stay under version/<name>/results/<probe>/.
 # Relative roots resolve against this YAML; environment variables are supported.
 download_root: /pscratch/sd/t/tihsu/database/EveNet-BenchMark
 suite: probe.yaml
@@ -39,6 +40,8 @@ runtime:
 conditions:
   benchmarks: [qe, exotic_higgs_cls, exotic_higgs_asn, exotic_higgs_seg, anomaly]
   suite_overrides:
+    prediction:
+      batch_size_multiplier: 4
     adaptation:
       options:
         Training: {total_epochs: 20, epochs: 20}

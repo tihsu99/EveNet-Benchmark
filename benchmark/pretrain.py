@@ -59,7 +59,8 @@ def main():
     report["protocol_id"] = digest(report)
     write_json(output / "pretraining.json", report)
     try:
-        run_command([*runtime, "-m", "benchmark.worker", "--seed", str(suite["seed"]), "script",
+        run_command([*runtime, "-m", "benchmark.worker", "--seed", str(suite["seed"]),
+                     "--ray-storage", str(output / "ray"), "script",
                      "--", str(core / "scripts/train.py"), str(output / "train.yaml"),
                      "--ray_dir", str(output / "ray")], output, output / "train.log", environment)
         run_command([*runtime, "-m", "benchmark.worker", "best", "--checkpoint", str(output / "checkpoints"),

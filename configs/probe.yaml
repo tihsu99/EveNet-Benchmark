@@ -11,6 +11,12 @@ execution:
   analysis_python: [python3]
   wandb_mode: online
 
+# Per-GPU inference batch relative to training; does not change training resources.
+# A probe's prediction.batch_size_multiplier overrides this shared value.
+# A probe's evaluation.batch_size sets an absolute inference batch instead.
+prediction:
+  batch_size_multiplier: 4
+
 # Same adaptation budget for every candidate. Existing native task optimizer
 # settings remain in the task templates unless overridden here or per task.
 adaptation:
@@ -172,8 +178,7 @@ benchmarks:
         shape_metadata.json: ${ANOMALY_DATA}/SB/shape_metadata.json
     evaluation:
       kind: anomaly
-      generated_events: 50000
-      batch_size: 4096
+      generated_events: 20000
       max_background: 2000
       metric_paths:
         calibration_magnitude: [before cut, mean_calibration_difference]

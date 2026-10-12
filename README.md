@@ -96,6 +96,8 @@ The supplied configuration produces this layout (`<name>` is the run's `--name`)
         report.json
         figures/
         <probe>/          # Adapted checkpoints, predictions, metrics and logs
+          checkpoints/    # Best/last adapted model checkpoints
+          ray/            # Ray Train AND Predict persistent results
   sources/                # Downloaded source repositories
   assets.lock.json
   comparison/             # Combined checkpoint comparison
@@ -107,6 +109,15 @@ accepted as a fallback only when `download_root` is absent. Each download's
 `local_dir` is relative to `data/`; an absolute value can explicitly override it.
 Resolved locations automatically feed the probe configuration. Use
 `download --dry-run` to inspect destinations before downloading.
+
+The native-script adapter enforces the probe's `ray/` storage path, including
+prediction scripts that otherwise default to `~/ray_results`. Checkpoints remain
+under the same probe's `checkpoints/`. The optional pretraining command places
+both directories under its explicit `--output` path. Run from any checkout;
+these destinations are absolute and do not depend on your shell's directory.
+Existing files in home are not moved or deleted. Ray cluster session logs and
+object spilling are managed by the externally started cluster (normally in
+`/tmp/ray`), independently of these persistent benchmark results.
 
 Run `status --watch` from another terminal during execution. The driver updates
 `version/<name>/job/status.json`, and each probe updates
@@ -175,6 +186,25 @@ optimizer update per batch with no gradient accumulation, as in the native train
 The existing 20-epoch, fixed-subset probe budget remains a quick benchmark rather
 than a reproduction of the full paper training budget.
 
+Prediction defaults to four times the training batch per GPU, with the same GPU
+worker count for QE and Higgs. These are throughput settings, not paper training
+settings, and the larger batches have not been validated on NERSC:
+
+| Probe | Prediction GPUs | Prediction batch per GPU |
+| --- | ---: | ---: |
+| QE | 16 | 4096 |
+| Each Higgs probe | 4 | 8192 |
+| AD generation | 1 | 16384 |
+
+Set `conditions.suite_overrides.prediction.batch_size_multiplier` in the workflow
+YAML (default `4`). In `probe.yaml`, a probe's `prediction.batch_size_multiplier`
+overrides the shared multiplier, and `evaluation.batch_size` takes precedence as
+an absolute batch size. Suites without either setting retain the training batch.
+Training batches and GPU admission budgets stay unchanged. If a larger inference
+batch exceeds device memory, reduce that probe's multiplier or absolute batch.
+AD generates 20,000 events by default, controlled independently by
+`benchmarks.anomaly.evaluation.generated_events`.
+
 For the default four-node, 16-GPU allocation, QE runs alone; after it finishes,
 the three Higgs probes and AD can run together (4 + 4 + 4 + 4 GPUs).
 Admission conservatively counts a probe's training resources until its entire
@@ -186,7 +216,8 @@ The native AD generator uses `cuda:0` without Ray. Both AD generation and its
 JetNet evaluation now run inside a Ray task reserving one GPU, so `cuda:0` refers
 to the assigned device rather than a GPU occupied by another probe. Generation
 keeps the existing single-rank seed/event semantics; its batch is separately set
-by `evaluation.batch_size`. Both the training and AD analysis runtimes need Ray.
+by the prediction multiplier or an explicit `evaluation.batch_size`.
+Both the training and AD analysis runtimes need Ray.
 
 All workers must see the same code, prepared data and output paths, with compatible
 Python/Ray/model dependencies. GPU visibility and container mounts remain part of

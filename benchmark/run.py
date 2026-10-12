@@ -35,6 +35,19 @@ def save_model_config(path, config):
     save_yaml(path, config)
 
 
+def prediction_batch_size(suite, task, training_batch):
+    settings = merge(suite.get("prediction", {}), task.get("prediction", {}))
+    batch = task.get("evaluation", {}).get("batch_size")
+    if batch is None:
+        multiplier = settings.get("batch_size_multiplier", 1)
+        if isinstance(multiplier, bool) or not isinstance(multiplier, int) or multiplier < 1:
+            raise ValueError("prediction.batch_size_multiplier must be a positive integer")
+        batch = training_batch * multiplier
+    if isinstance(batch, bool) or not isinstance(batch, int) or batch < 1:
+        raise ValueError("Prediction batch_size must be a positive integer")
+    return batch
+
+
 def build_configs(suite, task, base, prepared, work, network, checkpoint):
     core = path_value(suite["core"], base)
     repository = path_value(task["repository"], base)
@@ -75,6 +88,8 @@ def build_configs(suite, task, base, prepared, work, network, checkpoint):
     logger["wandb"].pop("id", None)
     logger["wandb"].pop("entity", None)
     prediction = copy.deepcopy(train)
+    prediction["platform"]["batch_size"] = prediction_batch_size(
+        suite, task, train["platform"]["batch_size"])
     if task.get("predict_yaml"):
         template_predict = resolve_template(path_value(task["predict_yaml"], base), repository, task.get("template_tokens"))
         prediction["options"]["prediction"] = template_predict.get("options", {}).get("prediction", {})
@@ -136,7 +151,9 @@ def run_task(name, task, suite, base, prepared, work, network, checkpoint, weigh
 
     def worker(operation, arguments, label, analysis=False, reserve_gpu=False):
         argv = [*(analysis_runtime if analysis else runtime), "-m", "benchmark.worker",
-                "--seed", str(suite["seed"]), operation, *map(str, arguments)]
+                "--seed", str(suite["seed"]),
+                *(["--ray-storage", str(work / "ray")] if operation == "script" else []),
+                operation, *map(str, arguments)]
         if reserve_gpu:
             prefix = analysis_runtime if analysis else runtime
             argv = [*prefix, "-m", "benchmark.ray_script", "--cpus",
@@ -182,7 +199,7 @@ def run_task(name, task, suite, base, prepared, work, network, checkpoint, weigh
         worker("script", ["--", repository / "01predict_SR_certain_fold.py", work / "workflow.yaml",
                           "--checkpoint", best["path"], "--region", "SR", "--fold", task["data"]["fold"]["index"],
                           "--gen_num_events", evaluation["generated_events"],
-                          "--batch_size", evaluation.get("batch_size", train["platform"]["batch_size"]),
+                          "--batch_size", prediction["platform"]["batch_size"],
                           "--ngpu", "1", "--rank", "0"], "predict", reserve_gpu=True)
         worker("script", ["--", repository / "02prepare_classification_dataset.py", work / "workflow.yaml",
                           "--region", "SR", "--calibrated", "--max_background", evaluation["max_background"]],

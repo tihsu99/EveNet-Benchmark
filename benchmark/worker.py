@@ -1,6 +1,7 @@
 """EveNet-runtime operations, isolated from the lightweight runner."""
 
 import argparse
+from contextlib import contextmanager
 from fnmatch import fnmatchcase
 import importlib.util
 import json
@@ -13,6 +14,30 @@ import sys
 import numpy as np
 
 from .common import read_yaml, write_json
+
+
+@contextmanager
+def ray_storage(directory):
+    """Constrain native scripts' Ray results to the benchmark output directory."""
+    if directory is None:
+        yield
+        return
+    from ray.train import RunConfig
+
+    directory = str(Path(directory).resolve())
+    Path(directory).mkdir(parents=True, exist_ok=True)
+    original = RunConfig.__post_init__
+
+    def configure(config):
+        # Native prediction scripts omit storage_path and otherwise use ~/ray_results.
+        config.storage_path = directory
+        original(config)
+
+    RunConfig.__post_init__ = configure
+    try:
+        yield
+    finally:
+        RunConfig.__post_init__ = original
 
 
 def audit_transfer(target, source, required, allowed_missing=(), allowed_unused=()):
@@ -164,6 +189,7 @@ def main():
     parser.add_argument("--repository")
     parser.add_argument("--output")
     parser.add_argument("--seed", type=int, default=42)
+    parser.add_argument("--ray-storage", help="Override native Ray RunConfig storage under this directory")
     args, script_args = parser.parse_known_args()
     if args.operation != "script" and script_args:
         parser.error(f"Unexpected arguments: {script_args}")
@@ -186,7 +212,8 @@ def main():
             parser.error("script requires -- script.py [arguments]")
         sys.argv = script_args
         sys.path.insert(0, str(Path(script_args[0]).resolve().parent))
-        runpy.run_path(script_args[0], run_name="__main__")
+        with ray_storage(args.ray_storage):
+            runpy.run_path(script_args[0], run_name="__main__")
 
 
 if __name__ == "__main__":
