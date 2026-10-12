@@ -87,6 +87,25 @@ Hub revisions and source commits; `prepared/` holds reusable verified subsets;
 Changing downloads or data selection requires a new workdir. `run --dry-run`
 writes a reviewable plan (and Slurm script when selected), reserving that name.
 
+Set `download_root` in the workflow YAML to choose storage for downloaded datasets
+and model checkpoints independently of the run directory:
+
+```yaml
+workdir: ../benchmark-work
+download_root: /shared/your-storage/evenet
+```
+
+With the supplied `local_dir` values, this stores QE data in
+`/shared/your-storage/evenet/assets/qe`, Higgs data in `assets/higgs`, and checkpoints
+in `assets/models`. Sources, prepared subsets, locks, and reports remain under
+`workdir`. The default `download_root: .` preserves the existing layout. Relative
+roots resolve against `workdir`; environment variables such as `${SCRATCH}/evenet`
+are supported. An absolute `downloads.<name>.local_dir` overrides the root for
+that download. Resolved locations automatically feed the probe configuration.
+Use `download --dry-run` to inspect destinations before downloading. Choose a new
+`workdir` if storage paths change after its download lock has been written;
+existing files are not moved automatically.
+
 The default weights and network come from the public v1 release. To probe a new
 pair-representation checkpoint, set `sources.EVENET_CORE.path` to its matching
 core checkout and supply its actual network YAML. The transfer audit rejects

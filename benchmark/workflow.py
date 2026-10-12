@@ -44,9 +44,11 @@ def configuration(path):
     if cfg.get("schema_version") != 1:
         raise ValueError("Workflow needs schema_version: 1")
     root = path_value(cfg["workdir"], path.parent)
+    download_root = path_value(cfg.get("download_root", "."), root)
     environment = dict(os.environ)
     for key, item in {**cfg.get("sources", {}), **cfg.get("downloads", {})}.items():
-        environment[key] = str(path_value(item.get("path", item.get("local_dir")), root))
+        base = download_root if key in cfg.get("downloads", {}) else root
+        environment[key] = str(path_value(item.get("path", item.get("local_dir")), base))
     for key, value in cfg.get("variables", {}).items():
         environment[key] = expand(value, environment)
     return cfg, path, root, environment
@@ -63,6 +65,9 @@ def fetch(cfg, root, environment, dry_run=False):
         old = json.loads(lock_path.read_text()) if lock_path.exists() else None
         if old and old["spec_id"] != receipt["spec_id"]:
             raise ValueError("Download/source specification changed; choose a new workdir")
+        if old and any(Path(asset["path"]).resolve() != Path(environment[key]).resolve()
+                       for key, asset in old["assets"].items()):
+            raise ValueError("Download/source storage path changed; choose a new workdir")
         for key, source in tqdm(entries.items(), desc="Sources and downloads", unit="source"):
             target = Path(environment[key])
             if key in cfg.get("sources", {}):
@@ -103,9 +108,9 @@ def fetch(cfg, root, environment, dry_run=False):
                                  revision=info.sha, allow_patterns=files, local_dir=str(target))
                 if dry_run:
                     planned = snapshot_download(**arguments, dry_run=True)
-                    tqdm.write(f"{key}: {len(files)} files; {sum(f.file_size for f in planned):,} bytes selected; revision {info.sha}")
+                    tqdm.write(f"{key}: {len(files)} files; {sum(f.file_size for f in planned):,} bytes selected; revision {info.sha} -> {target}")
                     continue
-                tqdm.write(f"{key}: downloading {len(files)} files at revision {info.sha}")
+                tqdm.write(f"{key}: downloading {len(files)} files at revision {info.sha} -> {target}")
                 snapshot_download(**arguments)
                 if any(not (target / file).is_file() for file in files):
                     raise FileNotFoundError(f"Incomplete download: {key}")

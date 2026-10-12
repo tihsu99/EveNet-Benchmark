@@ -1,5 +1,8 @@
 schema_version: 1
 workdir: ../benchmark-work
+# Base for downloads.*.local_dir; absolute paths and environment variables work.
+# Relative roots are resolved against workdir. Sources and run outputs stay there.
+download_root: /pscratch/sd/t/tihsu/database/EveNet-BenchMark
 suite: probe.yaml
 reference: paper_reference.yaml
 backend: local
