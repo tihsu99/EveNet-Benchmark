@@ -38,12 +38,9 @@ def main():
         file_shuffle_seed=suite["seed"],
         normalization_file=str(prepared / "train" / task["normalization_asset"]))
     training = config["options"]["Training"]
-    epochs = int(training["total_epochs"])
-    training.update(epochs=epochs, model_checkpoint_save_top_k=1, random_seed=suite["seed"],
+    training.update(model_checkpoint_save_top_k=1, random_seed=suite["seed"],
                     model_checkpoint_load_path=None, pretrain_model_load_path=None,
                     model_checkpoint_save_path=str(output / "checkpoints"))
-    training["EarlyStopping"] = {"monitor": "val/loss", "mode": "min", "patience": epochs + 1,
-                                 "min_delta": 0.0, "verbose": True}
     config["logger"]["local"] = {"save_dir": str(output / "logs"), "name": "pretraining", "version": "0"}
     config["logger"]["wandb"].update(project=suite.get("wandb_project", "EveNet-Benchmark"), run_name=output.name)
     config["logger"]["wandb"].pop("id", None)

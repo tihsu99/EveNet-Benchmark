@@ -42,9 +42,6 @@ conditions:
   suite_overrides:
     prediction:
       batch_size_multiplier: 4
-    adaptation:
-      options:
-        Training: {total_epochs: 20, epochs: 20}
 
 # A local checkout can replace any source: {path: /path/to/checkout}.
 # Public Git revisions and Hub revisions are pinned, not moving branches.

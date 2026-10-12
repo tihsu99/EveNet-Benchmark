@@ -72,10 +72,6 @@ def build_configs(suite, task, base, prepared, work, network, checkpoint):
                      "model_checkpoint_save_path": str(work / "checkpoints"),
                      "model_checkpoint_load_path": None,
                      "pretrain_model_load_path": str(work / "initialization.ckpt") if checkpoint else None})
-    epochs = int(training["total_epochs"])
-    training["epochs"] = epochs
-    training["EarlyStopping"] = {"monitor": "val/loss", "mode": "min", "min_delta": 0.0,
-                                 "patience": epochs + 1, "verbose": True}
     # Raw adapted weights are evaluated consistently, including the native anomaly generator.
     training["EMA"]["replace_model_after_load"] = False
     training["EMA"]["replace_model_at_end"] = False

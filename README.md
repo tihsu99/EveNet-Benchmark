@@ -183,8 +183,25 @@ The paper does not specify batch sizes; per-GPU batches come from the pinned
 The public AD recipe uses two GPUs; this suite deliberately uses the paper's four
 GPUs while retaining the recipe's per-GPU batch. The global batch assumes one
 optimizer update per batch with no gradient accumulation, as in the native trainer.
-The existing 20-epoch, fixed-subset probe budget remains a quick benchmark rather
-than a reproduction of the full paper training budget.
+Epoch limits and early stopping are inherited from each pinned public recipe;
+the runner does not replace them with a shared 20-epoch limit or disable stopping.
+
+| Probe | Max epochs (`epochs`) | Schedule epochs (`total_epochs`) | Early stopping patience | Monitor |
+| --- | ---: | ---: | ---: | --- |
+| QE | 300 | 300 | 50 | `val/loss` |
+| Each Higgs probe | 50 | 200 | 10 | `val/loss` |
+| AD | 1000 | 1000 | 1000 | `val/generation-recon` |
+
+The native trainer reads `Training.EarlyStopping`; the separate Higgs
+`Training.patience: 20` field is not used by that trainer. The effective value 10
+comes from its [options.yaml](https://github.com/EveNet-HEP/Exotic-Higgs-Study/blob/c248a12749479f4d58778e76e10449a4d1d0292a/configs/options.yaml).
+The AD settings come from its [options.yaml](https://github.com/EveNet-HEP/CMSOpenData-Upsilon-AnomalyDetection/blob/ff4f16845a7919d8c3e49f29240f9d79071e2a64/config/options.yaml).
+`epochs` limits trainer execution, while `total_epochs` controls the optimizer
+schedule; they remain distinct exactly as specified by the recipe. Explicit
+`adaptation.options.Training` and per-probe `overrides.options.Training` values
+still take precedence, including nested `EarlyStopping` overrides.
+These are public-recipe settings, not a claim of exact paper reproduction:
+the fixed subsets, single AD fold and requested generation budget remain in use.
 
 Prediction defaults to four times the training batch per GPU, with the same GPU
 worker count for QE and Higgs. These are throughput settings, not paper training

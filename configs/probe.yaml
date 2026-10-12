@@ -17,16 +17,12 @@ execution:
 prediction:
   batch_size_multiplier: 4
 
-# Same adaptation budget for every candidate. Existing native task optimizer
-# settings remain in the task templates unless overridden here or per task.
+# Epochs, schedule length and early stopping come from each pinned native recipe.
+# Explicit overrides here or per task take precedence for every candidate.
 adaptation:
   platform:
     resources_per_worker: {CPU: 30, GPU: 1}
     use_gpu: true
-  options:
-    Training:
-      total_epochs: 20
-      epochs: 20
 
 # New task heads may initialize independently. Backbone mismatches fail closed.
 # Add narrowly scoped exceptions only after inspecting load_audit.json.
