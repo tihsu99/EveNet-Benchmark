@@ -148,13 +148,29 @@ def classification(args):
                             ["No surviving background: rejection and SIC are undefined, not infinite"]})
 
 
-def quantum(args):
-    import torch
-    repository = Path(args.repository).resolve()
+def load_quantum_analysis(repository, config):
+    """Load the native evaluator with an explicit, portable RooUnfold library."""
+    import ROOT
+    library = config.get("roounfold_library")
+    if library or not all(hasattr(ROOT, key) for key in ("RooUnfoldResponse", "RooUnfoldSvd")):
+        resolved = os.path.expandvars(os.path.expanduser(library or "libRooUnfold"))
+        if ROOT.gSystem.Load(resolved) < 0 and library:
+            raise RuntimeError(f"Cannot load RooUnfold library: {resolved}; set evaluation.roounfold_library")
+    repository = Path(repository).resolve()
     sys.path.insert(0, str(repository))
     spec = importlib.util.spec_from_file_location("qe_reference_analysis", repository / "analysis.py")
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
+    for key in ("RooUnfoldResponse", "RooUnfoldSvd"):
+        if not hasattr(ROOT, key):
+            raise RuntimeError(f"Missing RooUnfold class: {key}; set evaluation.roounfold_library")
+    return module
+
+
+def quantum(args):
+    import torch
+    config = read_yaml(args.config)
+    module = load_quantum_analysis(args.repository, config)
     raw = torch.load(args.prediction, map_location="cpu", weights_only=False)
     count = sum(len(batch["full_input_point_cloud"]) for batch in raw)
     truth_d, truth_final, truth_data = module.truth_ana(raw)
@@ -162,7 +178,6 @@ def quantum(args):
     Path("results/csv").mkdir(parents=True, exist_ok=True)
     final, result, up, down, _ = module.unfolding_process(full, count)
     module.save_unfold_res(final, result, up, down, "probe")
-    config = read_yaml(args.config)
     coefficients = config["trace_coefficients"]
     reconstructed_d = -sum(result[name] for name in coefficients)
     observable = config["observable"]

@@ -130,7 +130,7 @@ def run_task(name, task, suite, base, prepared, work, network, checkpoint, weigh
              cancel_event=None):
     core = path_value(suite["core"], base)
     repository = path_value(task["repository"], base)
-    execution = suite.get("execution", {})
+    execution = merge(suite.get("execution", {}), task.get("execution", {}))
     runtime = execution.get("python", [sys.executable])
     analysis_runtime = execution.get("analysis_python", runtime)
     environment = dict(os.environ)

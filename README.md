@@ -48,6 +48,74 @@ ROOT/RooUnfold environment and the library path expected by the native
 Awkward/vector, and JetNet dependencies. This package does not install or modify
 these external stacks.
 
+### Fast environment preflight (no training)
+
+After syncing this checkout and downloading the configured sources/data, run
+from the same shell/container that will launch the benchmark:
+
+```bash
+python3 -m benchmark.preflight configs/workflow.yaml
+```
+
+This creates a fresh `preflight/<timestamp>/report.json` under `download_root`,
+plus per-runtime JSON reports and logs. It does not create a benchmark version,
+prepare/copy datasets, load checkpoint tensors, or launch training/prediction.
+It resolves the same workflow overrides as a real run, checks input globs and
+one Parquet header per split, checks segmentation query counts against shape
+metadata, and imports the native entry points without calling their main blocks.
+Identical runtime checks are reused. All checks are collected before returning:
+exit 0 means PASS; exit 1 means at least one failure. Fix every failure first.
+The runtime-check timeout defaults to 120 seconds; change it with `--timeout`.
+
+When an existing Ray cluster is ready, optionally add `--ray`. This attaches and
+reports capacity without scheduling work or starting/stopping the cluster.
+Neither mode tests CUDA kernels, remote worker environments, full dataset
+integrity, checkpoint transfer, or physics results. After preflight passes, use
+the existing `run --check-only` stage for data verification and CPU checkpoint
+transfer auditing before an end-to-end run.
+
+Environment checks are declared in `configs/probe.yaml` under `preflight`, with
+task-specific overrides. Training/prediction use `execution.python`; evaluation
+uses `execution.analysis_python`. Each task can override either command under
+its own `execution` mapping. Commands remain argv lists; no shell evaluation is
+performed. Importing a custom script executes its top-level code, so keep its
+training/evaluation entry point behind `if __name__ == "__main__"`.
+
+The default workflow now selects `/pscratch/sd/t/tihsu/env/unfold/bin/python`
+for QE evaluation only. Preflight verifies that this executable and its imports
+are usable; the path alone does not prove that ROOT/RooUnfold is installed.
+The [QE public instructions](https://github.com/EveNet-HEP/TT2L-QC-Study#unfolding-study)
+require ROOT and a compiled RooUnfold library in addition to the EveNet image.
+The evaluator first tries `libRooUnfold` on the runtime library search path,
+then preserves the native loader as a fallback. To specify the Linux library
+explicitly, add this to the workflow's existing task override:
+
+```yaml
+conditions:
+  suite_overrides:
+    benchmarks:
+      qe:
+        execution:
+          analysis_python: [/pscratch/sd/t/tihsu/env/unfold/bin/python]
+        evaluation:
+          roounfold_library: /absolute/path/to/libRooUnfold.so
+```
+
+The same loader is checked by preflight and used for actual QE evaluation.
+It verifies both `RooUnfoldResponse` and `RooUnfoldSvd` after importing native
+analysis. The upstream pinned script also attempts a relative `.dylib` load;
+that message alone is not a failure if the configured library supplied both classes.
+
+The [AD installation instructions](https://github.com/EveNet-HEP/CMSOpenData-Upsilon-AnomalyDetection#step-1-installation)
+use a Python 3.12 analysis environment, its `requirements.txt`, and a separate
+`zfit==0.22.0` installation; EveNet training uses the `avencast1994/evenet:1.5`
+image. Configure a different `anomaly.execution.analysis_python` if needed.
+Preflight checks imports used by the generation-quality probe, including the
+native AD preparation script, JetNet and zfit. It does not certify all optional
+dependencies of the full bump-hunting workflow or enforce every pinned package
+version. Reports include the executable and available imported-module versions.
+Required environment variables are checked for presence without recording values.
+
 ## Download, run, monitor and compare
 
 `configs/workflow.yaml` is the single entry point for pinned source repositories,
@@ -417,6 +485,11 @@ Task-specific `network_overrides` can adapt feature indices/dimensions; they are
 part of the benchmark protocol. For a matched scratch baseline, use the same
 network file and replace `--checkpoint ...` with `--scratch`. Use the v1 network
 file with the v1 checkpoint when comparing architecture variants.
+
+The Higgs Cls+Seg recipe sets `Segmentation.num_queries: 3` through that override,
+matching its public target slots. The candidate's backbone and other segmentation
+settings are preserved. A global pretraining head with four queries cannot be
+used unchanged with this dataset's three-slot segmentation truth.
 
 Before GPU adaptation, a CPU model is constructed using the actual target task
 configuration. The audit checks required backbone keys in **both directions**:

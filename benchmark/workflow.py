@@ -143,9 +143,8 @@ def resources(cfg):
             "workers": workers, "cpus_per_worker": cpus_per_worker, "max_parallel": max_parallel}
 
 
-def make_plan(cfg, path, root, environment, args):
-    if not args.name or not re.fullmatch(r"[A-Za-z0-9_-]+", args.name):
-        raise ValueError("Use an alphanumeric checkpoint name, with underscores or hyphens")
+def resolve_suite(cfg, path, environment):
+    """Resolve the same task settings for preflight and actual execution."""
     suite, _ = load_suite(path_value(cfg["suite"], path.parent))
     suite = expand(suite, environment)
     conditions = cfg.get("conditions", {})
@@ -171,6 +170,14 @@ def make_plan(cfg, path, root, environment, args):
                           "parallel": {"max_jobs": resource["max_parallel"],
                                        "CPU": resource["nodes"] * resource["cpus_per_node"] - resource.get("driver_cpus", 2),
                                        "GPU": resource["nodes"] * resource["gpus_per_node"]}}
+    return suite, resource
+
+
+def make_plan(cfg, path, root, environment, args):
+    if not args.name or not re.fullmatch(r"[A-Za-z0-9_-]+", args.name):
+        raise ValueError("Use an alphanumeric checkpoint name, with underscores or hyphens")
+    suite, resource = resolve_suite(cfg, path, environment)
+    runtime = cfg.get("runtime", {})
     demands = {name: task_resources(configured_platform(suite, task, path.parent))
                for name, task in suite["benchmarks"].items() if task.get("enabled", True)}
     for name, demand in demands.items():

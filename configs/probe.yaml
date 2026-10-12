@@ -11,6 +11,15 @@ execution:
   analysis_python: [python3]
   wandb_mode: online
 
+# Import-only checks run in the same task runtimes as the real pipeline.
+preflight:
+  training:
+    imports: [torch, lightning, ray.train.torch, pyarrow, evenet.network.evenet_model]
+    scripts: ["${EVENET_CORE}/scripts/train.py", "${EVENET_CORE}/scripts/predict.py"]
+    required_env: [WANDB_API_KEY]
+  evaluation:
+    imports: [torch, sklearn.metrics]
+
 # Per-GPU inference batch relative to training; does not change training resources.
 # A probe's prediction.batch_size_multiplier overrides this shared value.
 # A probe's evaluation.batch_size sets an absolute inference batch instead.
@@ -39,6 +48,10 @@ benchmarks:
     train_yaml: ${QE_REPO}/examples/Train_example.yaml
     predict_yaml: ${QE_REPO}/examples/Predict_example.yaml
     normalization_asset: normalization.pt
+    preflight:
+      evaluation:
+        imports: [torch, ROOT]
+        # The quantum adapter also imports analysis.py and checks RooUnfold classes.
     # GPUs: paper Table 2; per-worker batch: pinned Train_example.yaml.
     overrides:
       platform: {number_of_workers: 16, batch_size: 1024}
@@ -139,6 +152,9 @@ benchmarks:
     <<: *higgs_task
     label: Exotic Higgs / Cls+Seg
     variant_label: Cls+Seg
+    # The public Higgs dataset and native head use three target slots.
+    network_overrides:
+      Segmentation: {num_queries: 3}
     overrides:
       platform: *higgs_platform
       options:
@@ -156,6 +172,12 @@ benchmarks:
     train_yaml: ${ANOMALY_REPO}/config/full_train.yaml
     workflow_yaml: ${ANOMALY_REPO}/config/workflow.yaml
     normalization_asset: normalization.pt
+    preflight:
+      prediction:
+        scripts: ["${ANOMALY_REPO}/01predict_SR_certain_fold.py"]
+      evaluation:
+        imports: [torch, ray, awkward, vector, jetnet.evaluation, zfit]
+        scripts: ["${ANOMALY_REPO}/02prepare_classification_dataset.py"]
     # Table 2 specifies 4 GPUs. Batch is from the public recipe (paper omits it).
     # The public recipe itself uses 2 GPUs; the paper GPU count takes precedence.
     overrides:
