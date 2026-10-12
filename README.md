@@ -44,6 +44,18 @@ python3 -m pip install -e '.[classification,test]'
 For the supplied mixed-runtime workflow, install the two environment-specific
 requirements from this checkout on the host (outside Shifter):
 
+First match the host interpreter to the running cluster's exact Python version.
+The verified `evenet:1.3` image uses Python 3.12.3 and Ray 2.44.1. For that image:
+
+```bash
+conda install -p /pscratch/sd/t/tihsu/env/benchmark 'python=3.12.3'
+/pscratch/sd/t/tihsu/env/benchmark/bin/python -c 'import sys, ray; print(sys.version); print(ray.__version__)'
+```
+
+After the Conda command succeeds, install/check the Python dependencies below.
+This changes the host benchmark environment only; leave the existing `unfold`
+interpreter and running Shifter Ray services as they are.
+
 ```bash
 cd /global/u1/t/tihsu/EveNet-Benchmark
 /pscratch/sd/t/tihsu/env/benchmark/bin/python -m pip install -r requirements.txt
@@ -59,7 +71,10 @@ JetNet and zfit. Pins follow the
 [selected public AD recipe](https://github.com/EveNet-HEP/CMSOpenData-Upsilon-AnomalyDetection/blob/ff4f16845a7919d8c3e49f29240f9d79071e2a64/requirements.txt)
 and its documented `zfit==0.22.0` installation. Use Python 3.12 for this profile;
 zfit 0.22 does not support Python 3.13. The host Python/Ray versions must match
-the existing Shifter Ray cluster (the recipe pins Ray 2.44.1). Installing these
+the existing Shifter Ray cluster, including the Python patch version:
+[Ray 2.44.1 checks the complete version by default](https://github.com/ray-project/ray/blob/ray-2.44.1/python/ray/_private/utils.py).
+Python 3.12.15 therefore cannot directly join a cluster running Python 3.12.3.
+Pip requirements cannot enforce the interpreter patch version. Installing these
 pins can change existing package versions; run `pip check` before preflight.
 
 `requirements-qe.txt` selects `.[quantum]`: PyTorch and the Python analysis
@@ -326,6 +341,21 @@ schedule; they remain distinct exactly as specified by the recipe. Explicit
 still take precedence, including nested `EarlyStopping` overrides.
 These are public-recipe settings, not a claim of exact paper reproduction:
 the fixed subsets, single AD fold and requested generation budget remain in use.
+
+QE uses `diffusion_every_n_epochs: 100` and
+`Components.TruthGeneration.diffusion_steps: 20` under
+`benchmarks.qe.overrides.options.Training` in `configs/probe.yaml`.
+Training-time validation sampling runs at epochs 100, 200, etc., with 20 sampler
+steps; validation batch cadence, diffusion loss and early stopping on `val/loss`
+retain their native settings. Diagnostic plots therefore use coarser sampling.
+QE's `prediction.overrides.options.Training.Components.TruthGeneration.diffusion_steps`
+restores 200 steps for final prediction/evaluation.
+
+`prediction.overrides` merges native configuration fields into the prediction
+config only, after resolving the prediction template. Per-probe settings override
+shared `prediction.overrides`. The runner still controls prediction batch size,
+evaluation data/output paths, dataset limit and checkpoint initialization.
+These settings apply to newly launched runs, not a running trainer or a saved plan.
 
 Prediction defaults to four times the training batch per GPU, with the same GPU
 worker count for QE and Higgs. These are throughput settings, not paper training

@@ -1,3 +1,4 @@
 # Install from the repository root in the host benchmark environment.
-# Use Python 3.12 to match the public AD recipe and the Shifter Ray cluster.
+# Match the cluster's exact Python patch version (3.12.3 for evenet:1.3).
+# Set Python through Conda; pip cannot change the interpreter version.
 -e .[host]

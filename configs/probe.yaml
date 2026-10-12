@@ -60,6 +60,18 @@ benchmarks:
     # GPUs: paper Table 2; per-worker batch: pinned Train_example.yaml.
     overrides:
       platform: {number_of_workers: 16, batch_size: 1024}
+      options:
+        Training:
+          # Cheaper training diagnostics; final prediction restores the native step count.
+          diffusion_every_n_epochs: 100
+          Components:
+            TruthGeneration: {diffusion_steps: 20}
+    prediction:
+      overrides:
+        options:
+          Training:
+            Components:
+              TruthGeneration: {diffusion_steps: 200}
     data:
       train: ["${QE_DATA}/train/*.parquet"]
       validation: ["${QE_DATA}/val/*.parquet"]

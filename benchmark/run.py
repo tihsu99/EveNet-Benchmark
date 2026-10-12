@@ -83,11 +83,13 @@ def build_configs(suite, task, base, prepared, work, network, checkpoint):
                                            "run_name": work.parent.name + "-" + work.name})
     logger["wandb"].pop("id", None)
     prediction = copy.deepcopy(train)
-    prediction["platform"]["batch_size"] = prediction_batch_size(
-        suite, task, train["platform"]["batch_size"])
     if task.get("predict_yaml"):
         template_predict = resolve_template(path_value(task["predict_yaml"], base), repository, task.get("template_tokens"))
         prediction["options"]["prediction"] = template_predict.get("options", {}).get("prediction", {})
+    prediction_settings = merge(suite.get("prediction", {}), task.get("prediction", {}))
+    prediction = merge(prediction, prediction_settings.get("overrides", {}))
+    prediction["platform"]["batch_size"] = prediction_batch_size(
+        suite, task, train["platform"]["batch_size"])
     prediction["options"].setdefault("prediction", {}).update({
         "output_dir": str(work / "predictions"), "filename": "prediction.pt"})
     prediction["platform"]["data_parquet_dir"] = str(prepared / "evaluation")
