@@ -48,13 +48,21 @@ ROOT/RooUnfold environment and the library path expected by the native
 Awkward/vector, and JetNet dependencies. This package does not install or modify
 these external stacks.
 
+W&B runs use `wandb_project` (default `EveNet-Benchmark`) and the team configured
+in `adaptation.logger.wandb.entity` (default `ytchou97-university-of-washington`,
+matching the public AD/Higgs recipes). Native recipe entities are preserved when
+no override is supplied. A task can override the team through
+`benchmarks.<task>.overrides.logger.wandb.entity`; set it to `null` to let W&B
+resolve its default entity. The entity selects the team workspace, not a W&B run
+group. Template run IDs are still removed so adaptations create independent runs.
+
 ### Fast environment preflight (no training)
 
 After syncing this checkout and downloading the configured sources/data, run
-from the same shell/container that will launch the benchmark:
+from the host shell for the supplied workflow (do not prefix this with Shifter):
 
 ```bash
-python3 -m benchmark.preflight configs/workflow.yaml
+/pscratch/sd/t/tihsu/env/benchmark/bin/python -m benchmark.preflight configs/workflow.yaml
 ```
 
 This creates a fresh `preflight/<timestamp>/report.json` under `download_root`,
@@ -75,11 +83,21 @@ the existing `run --check-only` stage for data verification and CPU checkpoint
 transfer auditing before an end-to-end run.
 
 Environment checks are declared in `configs/probe.yaml` under `preflight`, with
-task-specific overrides. Training/prediction use `execution.python`; evaluation
-uses `execution.analysis_python`. Each task can override either command under
+task-specific overrides. Training uses `execution.python`; prediction uses
+`execution.prediction_python` when set, otherwise the training command; evaluation
+uses `execution.analysis_python`. Each task can override these commands under
 its own `execution` mapping. Commands remain argv lists; no shell evaluation is
 performed. Importing a custom script executes its top-level code, so keep its
 training/evaluation entry point behind `if __name__ == "__main__"`.
+
+The supplied workflow keeps the driver/runner, Higgs evaluation, and AD native
+prediction/evaluation in `/pscratch/sd/t/tihsu/env/benchmark/bin/python` on the
+host. Training and QE/Higgs prediction explicitly use `[shifter, python3]`.
+The driver runtime is also used for the inner benchmark runner and Slurm driver;
+it must not silently switch back to the training container. Calling a host
+environment's Python from inside Shifter still runs it inside that container.
+Preflight checks the driver imports, AD `numdifftools`, JetNet/zfit, and the
+native scripts in their selected runtimes. It does not install packages.
 
 The default workflow now selects `/pscratch/sd/t/tihsu/env/unfold/bin/python`
 for QE evaluation only. Preflight verifies that this executable and its imports
@@ -297,17 +315,22 @@ pipeline completes; CPU-only stages may leave GPUs idle. Failures are recorded
 per probe and other probes continue. Each probe keeps its own configs, checkpoints,
 predictions, and logs. Only the coordinator writes the combined report.
 
-The native AD generator uses `cuda:0` without Ray. Both AD generation and its
-JetNet evaluation now run inside a Ray task reserving one GPU, so `cuda:0` refers
-to the assigned device rather than a GPU occupied by another probe. Generation
-keeps the existing single-rank seed/event semantics; its batch is separately set
-by the prediction multiplier or an explicit `evaluation.batch_size`.
-Both the training and AD analysis runtimes need Ray.
+The native AD generator uses `cuda:0` without Ray. The supplied workflow sets
+`benchmarks.anomaly.execution.native_on_driver: true`: AD generation and JetNet
+evaluation run as host subprocesses while a same-node Ray actor reserves one GPU
+and the configured CPUs. The subprocess receives the reserved GPU through
+`CUDA_VISIBLE_DEVICES`, and the reservation is released when it exits. Without
+this option, these scripts run inside a Ray task as before. Generation keeps the
+existing single-rank seed/event semantics; its batch is separately set by the
+prediction multiplier or an explicit `evaluation.batch_size`.
+The host benchmark environment needs a Python/Ray version compatible with the
+existing cluster. `preflight --ray` checks connectivity and driver-node resource
+capacity; it does not run GPU kernels or allocate the resource lease.
 
 All workers must see the same code, prepared data and output paths, with compatible
 Python/Ray/model dependencies. GPU visibility and container mounts remain part of
-the cluster you set up. Ray controls device placement; the runner does not pin a
-particular probe to a specific physical node. Multiple checkpoint drivers share
+the cluster you set up. Ray controls training-worker placement; host-native AD
+stages reserve resources on the driver's node. Multiple checkpoint drivers share
 Ray's cluster resources, but each driver's local concurrency limit is independent.
 
 For your interactive allocation, first start your existing Ray cluster on all
@@ -319,8 +342,8 @@ export RAY_ADDRESS=HEAD_IP:6379
 export PYTHONPATH="$PWD${PYTHONPATH:+:$PYTHONPATH}"
 shifter ray status --address="$RAY_ADDRESS"
 # Confirm 4 alive nodes, 16 GPUs, and enough CPUs (QE needs 481).
-shifter python3 -m benchmark.workflow run configs/workflow.yaml --name plan-preview --dry-run
-shifter python3 -m benchmark.workflow run configs/workflow.yaml --name candidate-parallel
+/pscratch/sd/t/tihsu/env/benchmark/bin/python -m benchmark.workflow run configs/workflow.yaml --name plan-preview --dry-run
+/pscratch/sd/t/tihsu/env/benchmark/bin/python -m benchmark.workflow run configs/workflow.yaml --name candidate-parallel
 ```
 
 Replace `HEAD_IP` with the cluster head address. The default CPU budget assumes
@@ -337,14 +360,17 @@ Train workers request them separately. Your shell throttle controls active
 checkpoint workflows, not their GPU allocation. Check each background command's
 exit status; a final bare `wait` does not reliably report earlier job failures.
 
-Inside an existing Shifter allocation, use `runtime.driver: [shifter, python3]`
-with `backend: local` to launch the driver once. The commands inside that driver
-can remain `runtime.python: [python3]`; `analysis_python` can select a separate
-physics environment. Alternatively, `--backend slurm` submits exactly one CPU
+With the supplied mixed-runtime workflow, launch the driver on the host of an
+existing Ray GPU node and let `runtime.python: [shifter, python3]` enter the
+training container. Keep `runtime.image: null` so the driver stays on the host.
+A fully containerized workflow may instead use a Shifter driver and plain
+`python3` child commands, but it cannot run host-only analysis environments.
+Alternatively, `--backend slurm` submits exactly one CPU
 driver task using the configured account, partition, time and `driver_cpus`.
 It exports your Ray address. `runtime.image` adds the image to the SBATCH header
 and executes the driver through Shifter. This optional submission does not create
-a Ray cluster. Cancelling that driver does not stop your externally managed Ray
+a Ray cluster. Host AD stages require the submitted driver to land on an existing
+Ray GPU node; an unrelated CPU node is rejected. Cancelling that driver does not stop your externally managed Ray
 services; use your normal Ray job/cluster controls for any surviving training work.
 
 ```bash

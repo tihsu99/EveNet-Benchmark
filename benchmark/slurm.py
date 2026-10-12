@@ -35,7 +35,8 @@ def render_script(plan_path):
     lines.append(f"export PYTHONPATH={shlex.quote(root)}${{PYTHONPATH:+:$PYTHONPATH}}")
     prefix = ["shifter", *runtime.get("shifter_args", [])] if runtime.get("image") else []
     command = ["srun", "--nodes=1", "--ntasks=1", "--cpu-bind=none", *prefix,
-               *runtime.get("python", ["python3"]), "-m", "benchmark.workflow", "_execute", str(plan_path)]
+               *runtime.get("driver", runtime.get("python", ["python3"])),
+               "-m", "benchmark.workflow", "_execute", str(plan_path)]
     lines.append("exec " + shlex.join(command))
     return "\n".join(lines) + "\n"
 

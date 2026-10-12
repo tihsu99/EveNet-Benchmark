@@ -289,7 +289,8 @@ def execute(plan_path):
                         shutil.rmtree(temporary, ignore_errors=True)
         state["stage"] = "benchmark"
         write_json(state_path, state)
-        argv = [*suite["execution"]["python"], "-m", "benchmark.run", plan["suite"],
+        driver = plan.get("runtime", {}).get("driver", suite["execution"]["python"])
+        argv = [*driver, "-m", "benchmark.run", plan["suite"],
                 "--prepared", plan["prepared"], "--network", plan["network"],
                 "--name", plan["name"], "--output", plan["output"], "--weight-source", plan["weight_source"],
                 *(["--checkpoint", plan["checkpoint"]] if plan["checkpoint"] else ["--scratch"]),

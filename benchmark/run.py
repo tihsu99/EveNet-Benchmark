@@ -82,7 +82,6 @@ def build_configs(suite, task, base, prepared, work, network, checkpoint):
     logger.setdefault("wandb", {}).update({"project": suite.get("wandb_project", "EveNet-Benchmark"),
                                            "run_name": work.parent.name + "-" + work.name})
     logger["wandb"].pop("id", None)
-    logger["wandb"].pop("entity", None)
     prediction = copy.deepcopy(train)
     prediction["platform"]["batch_size"] = prediction_batch_size(
         suite, task, train["platform"]["batch_size"])
@@ -132,6 +131,7 @@ def run_task(name, task, suite, base, prepared, work, network, checkpoint, weigh
     repository = path_value(task["repository"], base)
     execution = merge(suite.get("execution", {}), task.get("execution", {}))
     runtime = execution.get("python", [sys.executable])
+    prediction_runtime = execution.get("prediction_python", runtime)
     analysis_runtime = execution.get("analysis_python", runtime)
     environment = dict(os.environ)
     environment["PYTHONPATH"] = os.pathsep.join([str(core), str(Path(__file__).resolve().parent.parent),
@@ -146,14 +146,15 @@ def run_task(name, task, suite, base, prepared, work, network, checkpoint, weigh
     commands = []
 
     def worker(operation, arguments, label, analysis=False, reserve_gpu=False):
-        argv = [*(analysis_runtime if analysis else runtime), "-m", "benchmark.worker",
+        prefix = analysis_runtime if analysis else prediction_runtime if label == "predict" else runtime
+        argv = [*prefix, "-m", "benchmark.worker",
                 "--seed", str(suite["seed"]),
                 *(["--ray-storage", str(work / "ray")] if operation == "script" else []),
                 operation, *map(str, arguments)]
         if reserve_gpu:
-            prefix = analysis_runtime if analysis else runtime
             argv = [*prefix, "-m", "benchmark.ray_script", "--cpus",
                     str(train["platform"]["resources_per_worker"]["CPU"]), "--gpus", "1",
+                    *(["--on-driver"] if execution.get("native_on_driver", False) else []),
                     "--", *argv[len(prefix):]]
         commands.append({"stage": label, "argv": argv, "cwd": str(work)})
         write_json(work / "commands.json", commands)

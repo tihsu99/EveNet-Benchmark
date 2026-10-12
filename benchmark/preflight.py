@@ -64,6 +64,9 @@ def probe(spec, output):
             import ray
             ray.init(address=spec["ray_address"])
             try:
+                if spec.get("native_on_driver"):
+                    from .ray_script import driver_node
+                    driver_node(ray, spec["cpus"], spec["gpus"])
                 return {"nodes": sum(bool(node["Alive"]) for node in ray.nodes()),
                         "capacity": ray.cluster_resources(), "available": ray.available_resources()}
             finally:
@@ -157,6 +160,10 @@ def run(config, output, timeout=120, ray=False):
             result["probe"] = json.loads((folder / "report.json").read_text())
         runtimes[key] = result
 
+    driver_spec = suite.get("preflight", {}).get("driver")
+    if driver_spec:
+        runtime("driver", cfg.get("runtime", {}).get("driver", [sys.executable]), driver_spec)
+    host_cpus = 0
     for name, task in suite["benchmarks"].items():
         if not task.get("enabled", True):
             continue
@@ -180,7 +187,11 @@ def run(config, output, timeout=120, ray=False):
         record(checks, f"{name}-config", model_config)
         execution = merge(suite.get("execution", {}), task.get("execution", {}))
         training = execution.get("python", [sys.executable])
+        prediction = execution.get("prediction_python", training)
         analysis = execution.get("analysis_python", training)
+        if execution.get("native_on_driver"):
+            from .scheduling import configured_platform
+            host_cpus = max(host_cpus, configured_platform(suite, task, path.parent)["resources_per_worker"]["CPU"])
         settings = merge(suite.get("preflight", {}), task.get("preflight", {}))
         for phase in ("training", "prediction", "evaluation"):
             spec = settings.get(phase)
@@ -197,7 +208,8 @@ def run(config, output, timeout=120, ray=False):
             if phase == "evaluation" and task["evaluation"]["kind"] == "quantum":
                 spec["quantum"] = {"repository": str(path_value(task["repository"], path.parent)),
                                    "config": task["evaluation"]}
-            runtime(f"{name}-{phase}", analysis if phase == "evaluation" else training, spec,
+            argv = {"training": training, "prediction": prediction, "evaluation": analysis}[phase]
+            runtime(f"{name}-{phase}", argv, spec,
                     execution.get("wandb_mode", "offline"))
     if ray:
         configured = cfg.get("ray", {}).get("address")
@@ -206,7 +218,8 @@ def run(config, output, timeout=120, ray=False):
             checks.append({"name": "ray", "status": "fail", "error": "No existing Ray address configured"})
         else:
             runtime("ray", cfg.get("runtime", {}).get("driver", [sys.executable]),
-                    {"ray_address": address})
+                    {"ray_address": address, "native_on_driver": bool(host_cpus),
+                     "cpus": host_cpus, "gpus": 1})
     report = {"status": "pass" if all(c["status"] == "pass" for c in checks) else "fail",
               "config": str(path), "checks": checks,
               "not_tested": ["checkpoint transfer", "full dataset integrity", "GPU kernels",

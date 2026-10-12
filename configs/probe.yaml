@@ -13,6 +13,8 @@ execution:
 
 # Import-only checks run in the same task runtimes as the real pipeline.
 preflight:
+  driver:
+    imports: [ray, benchmark.run, benchmark.plot]
   training:
     imports: [torch, lightning, ray.train.torch, pyarrow, evenet.network.evenet_model]
     scripts: ["${EVENET_CORE}/scripts/train.py", "${EVENET_CORE}/scripts/predict.py"]
@@ -29,6 +31,9 @@ prediction:
 # Epochs, schedule length and early stopping come from each pinned native recipe.
 # Explicit overrides here or per task take precedence for every candidate.
 adaptation:
+  logger:
+    wandb:
+      entity: ytchou97-university-of-washington
   platform:
     resources_per_worker: {CPU: 30, GPU: 1}
     use_gpu: true
@@ -174,9 +179,10 @@ benchmarks:
     normalization_asset: normalization.pt
     preflight:
       prediction:
+        imports: [torch, numdifftools]
         scripts: ["${ANOMALY_REPO}/01predict_SR_certain_fold.py"]
       evaluation:
-        imports: [torch, ray, awkward, vector, jetnet.evaluation, zfit]
+        imports: [torch, ray, awkward, vector, numdifftools, jetnet.evaluation, zfit]
         scripts: ["${ANOMALY_REPO}/02prepare_classification_dataset.py"]
     # Table 2 specifies 4 GPUs. Batch is from the public recipe (paper omits it).
     # The public recipe itself uses 2 GPUs; the paper GPU count takes precedence.

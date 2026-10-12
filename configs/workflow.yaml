@@ -29,10 +29,10 @@ resources:
   constraint: null
 
 runtime:
-  # Inside an existing Shifter allocation, this can be [shifter, python3].
-  driver: [python3]
-  python: [python3]
-  analysis_python: [python3]
+  # Launch from the host: analysis environments must stay outside Shifter.
+  driver: [/pscratch/sd/t/tihsu/env/benchmark/bin/python]
+  python: [shifter, python3]
+  analysis_python: [/pscratch/sd/t/tihsu/env/benchmark/bin/python]
   # Only used by backend: slurm; image is placed in the SBATCH header.
   image: null
   shifter_args: []
@@ -43,6 +43,10 @@ conditions:
     prediction:
       batch_size_multiplier: 4
     benchmarks:
+      anomaly:
+        execution:
+          prediction_python: [/pscratch/sd/t/tihsu/env/benchmark/bin/python]
+          native_on_driver: true
       qe:
         execution:
           analysis_python: [/pscratch/sd/t/tihsu/env/unfold/bin/python]
