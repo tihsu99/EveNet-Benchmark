@@ -7,6 +7,7 @@ import os
 from pathlib import Path
 import shutil
 import sys
+import threading
 import time
 
 import yaml
@@ -15,6 +16,7 @@ from tqdm.auto import tqdm
 from .common import (digest, file_hash, load_suite, merge, path_value, read_yaml,
                      resolve_template, run_command, source_revision, write_json)
 from .prepare import verify_manifest
+from .scheduling import run_parallel, task_resources
 
 
 def save_yaml(path, value):
@@ -101,7 +103,8 @@ def anomaly_workflow(task, base, prepared, work):
     return workflow
 
 
-def run_task(name, task, suite, base, prepared, work, network, checkpoint, weight_source, check_only=False):
+def run_task(name, task, suite, base, prepared, work, network, checkpoint, weight_source, check_only=False,
+             cancel_event=None):
     core = path_value(suite["core"], base)
     repository = path_value(task["repository"], base)
     execution = suite.get("execution", {})
@@ -119,9 +122,14 @@ def run_task(name, task, suite, base, prepared, work, network, checkpoint, weigh
     save_yaml(work / "load_policy.yaml", suite["load_policy"])
     commands = []
 
-    def worker(operation, arguments, label, analysis=False):
+    def worker(operation, arguments, label, analysis=False, reserve_gpu=False):
         argv = [*(analysis_runtime if analysis else runtime), "-m", "benchmark.worker",
                 "--seed", str(suite["seed"]), operation, *map(str, arguments)]
+        if reserve_gpu:
+            prefix = analysis_runtime if analysis else runtime
+            argv = [*prefix, "-m", "benchmark.ray_script", "--cpus",
+                    str(train["platform"]["resources_per_worker"]["CPU"]), "--gpus", "1",
+                    "--", *argv[len(prefix):]]
         commands.append({"stage": label, "argv": argv, "cwd": str(work)})
         write_json(work / "commands.json", commands)
         total = 1 if check_only else 5
@@ -132,7 +140,8 @@ def run_task(name, task, suite, base, prepared, work, network, checkpoint, weigh
         try:
             with tqdm(total=total, initial=len(commands)-1, desc=f"{name}: {label}", unit="stage",
                       disable=not sys.stderr.isatty(), leave=False) as progress:
-                run_command(argv, work, work / f"{label}.log", environment)
+                run_command(argv, work, work / f"{label}.log", environment,
+                            **({"cancel_event": cancel_event} if cancel_event is not None else {}))
                 progress.update(1)
             state["status"] = "complete"
         except BaseException:
@@ -160,10 +169,12 @@ def run_task(name, task, suite, base, prepared, work, network, checkpoint, weigh
         evaluation = task["evaluation"]
         worker("script", ["--", repository / "01predict_SR_certain_fold.py", work / "workflow.yaml",
                           "--checkpoint", best["path"], "--region", "SR", "--fold", task["data"]["fold"]["index"],
-                          "--gen_num_events", evaluation["generated_events"], "--ngpu", "1", "--rank", "0"], "predict")
+                          "--gen_num_events", evaluation["generated_events"],
+                          "--batch_size", evaluation.get("batch_size", train["platform"]["batch_size"]),
+                          "--ngpu", "1", "--rank", "0"], "predict", reserve_gpu=True)
         worker("script", ["--", repository / "02prepare_classification_dataset.py", work / "workflow.yaml",
                           "--region", "SR", "--calibrated", "--max_background", evaluation["max_background"]],
-               "evaluate", analysis=True)
+               "evaluate", analysis=True, reserve_gpu=True)
         source = work / "data_hybrid_calibrated/SR/gen_performance.json"
         native = json.loads(source.read_text())
         metrics = {key: native[section][metric] for key, (section, metric) in evaluation["metric_paths"].items()}
@@ -252,13 +263,26 @@ def main():
         report["protocol_id"] = digest({"suite": adaptation_protocol, "provenance": provenance})
         write_json(report_path, report)
         enabled = [(name, task) for name, task in suite["benchmarks"].items() if task.get("enabled", True)]
-        for name, task in tqdm(enabled, desc=args.name, unit="probe", disable=not sys.stderr.isatty()):
-            start = time.monotonic()
-            report["benchmarks"][name] = {"status": "running"}
+        demands = {name: task_resources(build_configs(
+            suite, task, base, Path(args.prepared).resolve() / task.get("data_group", name),
+            output / name, network, checkpoint)[0]["platform"]) for name, task in enabled}
+        report["resources"] = demands
+        for name, _ in enabled:
+            report["benchmarks"][name] = {"status": "queued", "resources": demands[name]}
+        write_json(report_path, report)
+
+        def on_start(name):
+            report["benchmarks"][name] = {"status": "running", "resources": demands[name]}
             write_json(report_path, report)
+
+        cancellation = threading.Event()
+
+        def run(name, task):
+            start = time.monotonic()
             try:
                 result = run_task(name, task, suite, base, Path(args.prepared).resolve() / task.get("data_group", name),
-                                  output / name, network, checkpoint, args.weight_source, args.check_only)
+                                  output / name, network, checkpoint, args.weight_source, args.check_only,
+                                  cancel_event=cancellation)
                 if not args.check_only and task["evaluation"]["kind"] != "anomaly" and result["evaluation"].get("events") != manifests[name]["counts"]["evaluation"]:
                     raise ValueError("Prediction row count does not match the fixed evaluation manifest")
             except Exception as error:
@@ -266,13 +290,22 @@ def main():
                           "logs": str(output / name)}
             result["elapsed_seconds"] = time.monotonic() - start
             result["counts"] = manifests[name]["counts"]
-            report["benchmarks"][name] = result
+            result["resources"] = demands[name]
+            return result
+
+        parallel = suite.get("execution", {}).get("parallel", {})
+        if int(parallel.get("max_jobs", 1)) > 1 and not os.environ.get("RAY_ADDRESS"):
+            raise ValueError("Parallel probes require RAY_ADDRESS for an existing shared cluster")
+        for name, future in run_parallel(enabled, run, demands, parallel, on_start, cancellation):
+            report["benchmarks"][name] = future.result()
             write_json(report_path, report)
         successful = "checked" if args.check_only else "complete"
         report["status"] = successful if all(result["status"] in (successful, "skipped")
                                               for result in report["benchmarks"].values()) else "partial"
-    except Exception as error:
+    except BaseException as error:
         report.update(status="failed", error=f"{type(error).__name__}: {error}")
+        if not isinstance(error, Exception):
+            raise
     finally:
         write_json(report_path, report)
     print(report_path)

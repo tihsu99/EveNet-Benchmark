@@ -5,6 +5,7 @@ import hashlib
 import json
 import os
 from pathlib import Path
+import signal
 import subprocess
 import threading
 import time
@@ -120,7 +121,7 @@ def source_revision(path):
         return {"commit": None}
 
 
-def run_command(argv, cwd, log, env=None):
+def run_command(argv, cwd, log, env=None, cancel_event=None):
     """Use argv, never a shell; preserve full command logs for failed runs."""
     if not argv or not all(isinstance(value, str) for value in argv):
         raise ValueError("Commands must be nonempty lists of strings")
@@ -130,18 +131,44 @@ def run_command(argv, cwd, log, env=None):
         stream.flush()
         stop = threading.Event()
         started = time.monotonic()
+        process = None
+
+        def terminate():
+            if process is not None and process.poll() is None:
+                try:
+                    if cancel_event is not None:
+                        os.killpg(process.pid, signal.SIGTERM)
+                    else:
+                        process.terminate()
+                    process.wait(timeout=10)
+                except subprocess.TimeoutExpired:
+                    if cancel_event is not None:
+                        os.killpg(process.pid, signal.SIGKILL)
+                    else:
+                        process.kill()
+                except ProcessLookupError:
+                    pass
 
         def heartbeat():
-            while not stop.wait(30):
-                tqdm.write(f"[{Path(log).stem}] running {time.monotonic() - started:.0f}s | log: {log}")
+            next_report = started + 30
+            while not stop.wait(1):
+                if cancel_event is not None and cancel_event.is_set():
+                    terminate()
+                    return
+                if time.monotonic() >= next_report:
+                    tqdm.write(f"[{Path(log).stem}] running {time.monotonic() - started:.0f}s | log: {log}")
+                    next_report = time.monotonic() + 30
 
         thread = threading.Thread(target=heartbeat, daemon=True)
         thread.start()
         environment = dict(os.environ if env is None else env)
         environment["PYTHONUNBUFFERED"] = "1"
         try:
+            if cancel_event is not None and cancel_event.is_set():
+                raise RuntimeError("Probe execution cancelled")
             with subprocess.Popen(argv, cwd=cwd, env=environment, stdout=subprocess.PIPE,
-                                  stderr=subprocess.STDOUT, text=True, errors="replace", bufsize=1) as process:
+                                  stderr=subprocess.STDOUT, text=True, errors="replace", bufsize=1,
+                                  start_new_session=cancel_event is not None) as process:
                 try:
                     for line in process.stdout:
                         stream.write(line)
@@ -150,12 +177,7 @@ def run_command(argv, cwd, log, env=None):
                     if process.wait():
                         raise subprocess.CalledProcessError(process.returncode, argv)
                 except BaseException:
-                    if process.poll() is None:
-                        process.terminate()
-                        try:
-                            process.wait(timeout=10)
-                        except subprocess.TimeoutExpired:
-                            process.kill()
+                    terminate()
                     raise
         finally:
             stop.set()

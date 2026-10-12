@@ -17,6 +17,7 @@ import uuid
 from tqdm.auto import tqdm
 
 from .common import digest, load_suite, merge, path_value, read_yaml, run_command, write_json
+from .scheduling import configured_platform, task_resources
 
 
 @contextmanager
@@ -131,14 +132,15 @@ def resources(cfg):
     cpus = int(resource.get("cpus_per_node", 8))
     workers = int(resource.get("workers", nodes * max(gpus, 1)))
     cpus_per_worker = int(resource.get("cpus_per_worker", max(1, (cpus - 2) // max(gpus, 1))))
-    if min(nodes, cpus, workers, cpus_per_worker) < 1 or gpus < 0:
+    max_parallel = int(resource.get("max_parallel", 1))
+    if min(nodes, cpus, workers, cpus_per_worker, max_parallel) < 1 or gpus < 0:
         raise ValueError("Invalid resource count")
     if gpus and workers > nodes * gpus:
         raise ValueError("Workers exceed allocated GPUs")
     if workers * cpus_per_worker > nodes * cpus - 1:
         raise ValueError("Worker CPUs leave no capacity for the Ray driver")
     return {**resource, "nodes": nodes, "gpus_per_node": gpus, "cpus_per_node": cpus,
-            "workers": workers, "cpus_per_worker": cpus_per_worker}
+            "workers": workers, "cpus_per_worker": cpus_per_worker, "max_parallel": max_parallel}
 
 
 def make_plan(cfg, path, root, environment, args):
@@ -165,7 +167,17 @@ def make_plan(cfg, path, root, environment, args):
     suite["adaptation"] = merge(suite.get("adaptation", {}), {"platform": platform})
     runtime = cfg.get("runtime", {})
     suite["execution"] = {**suite.get("execution", {}), "python": runtime.get("python", ["python3"]),
-                          "analysis_python": runtime.get("analysis_python", runtime.get("python", ["python3"]))}
+                          "analysis_python": runtime.get("analysis_python", runtime.get("python", ["python3"])),
+                          "parallel": {"max_jobs": resource["max_parallel"],
+                                       "CPU": resource["nodes"] * resource["cpus_per_node"] - resource.get("driver_cpus", 2),
+                                       "GPU": resource["nodes"] * resource["gpus_per_node"]}}
+    demands = {name: task_resources(configured_platform(suite, task, path.parent))
+               for name, task in suite["benchmarks"].items() if task.get("enabled", True)}
+    for name, demand in demands.items():
+        if any(demand[key] > suite["execution"]["parallel"][key] for key in ("CPU", "GPU")):
+            raise ValueError(f"Probe {name} needs {demand}; increase the allocation or explicitly change its platform")
+        tqdm.write(f"{name}: {demand['GPU']} GPUs, {demand['CPU']} CPUs including trainer, "
+                   f"batch {demand['batch_per_worker']} per worker / {demand['global_batch']} global")
     candidate = expand(cfg.get("candidate", {}), environment)
     checkpoint = None if args.scratch else str(path_value(args.checkpoint or candidate["checkpoint"], path.parent))
     network = str(path_value(args.network or candidate["network"], path.parent))
@@ -189,7 +201,8 @@ def make_plan(cfg, path, root, environment, args):
             "prepared": str(root / "data" / "prepared"), "output": str(version_dir / "results"),
             "reference": str(path_value(cfg.get("reference", "paper_reference.yaml"), path.parent)),
             "asset_lock": str(lock_path), "asset_lock_id": digest(lock) if lock else None,
-            "resources": resource, "runtime": runtime, "ray": expand(cfg.get("ray", {}), environment),
+            "resources": resource, "probe_resources": demands,
+            "runtime": runtime, "ray": expand(cfg.get("ray", {}), environment),
             "check_only": args.check_only, "created_at": time.time()}
     write_json(plan_dir / "plan.json", plan)
     return plan_dir / "plan.json"
@@ -200,8 +213,8 @@ def check_cluster(plan, output):
     configured = plan.get("ray", {}).get("address")
     address = (os.environ.get("RAY_ADDRESS") or configured) if configured in (None, "auto") else configured
     if not address:
-        if plan["resources"]["nodes"] > 1:
-            raise ValueError("Multi-node probes require an existing Ray address")
+        if plan["resources"]["nodes"] > 1 or plan["resources"].get("max_parallel", 1) > 1:
+            raise ValueError("Multi-node or parallel probes require an existing Ray address")
         return
     if "$" in address:
         raise ValueError("Unresolved Ray address; set RAY_ADDRESS or ray.address")
@@ -212,6 +225,8 @@ def check_cluster(plan, output):
         request = plan["resources"]
         required = {"CPU": request["workers"] * request["cpus_per_worker"],
                     "GPU": request["workers"] if request["gpus_per_node"] else 0}
+        if plan.get("probe_resources"):
+            required = {key: max(d[key] for d in plan["probe_resources"].values()) for key in required}
         deadline = time.monotonic() + float(plan.get("ray", {}).get("wait_timeout", 300))
         while True:
             capacity, available = ray.cluster_resources(), ray.available_resources()
@@ -326,6 +341,8 @@ def status(plan_path, display=True):
     results = json.loads(report.read_text()).get("benchmarks", {}) if report.exists() else {}
     result["completed_probes"] = sum(r.get("status") in ("complete", "checked") for r in results.values())
     result["failed_probes"] = sum(r.get("status") == "failed" for r in results.values())
+    result["running_probes"] = sum(r.get("status") == "running" for r in results.values())
+    result["queued_probes"] = sum(r.get("status") == "queued" for r in results.values())
     if display:
         print(json.dumps(result, indent=2))
     return result
@@ -367,7 +384,8 @@ def main():
                 progress.n = result["completed_probes"]
                 progress.set_description(f"{result['name']}: {result.get('stage', result.get('scheduler', result['status']))}")
                 active = next((s for s in result["stages"] if s["status"] == "running"), {})
-                progress.set_postfix(stage=active.get("stage", "-"), failed=result["failed_probes"])
+                progress.set_postfix(stage=active.get("stage", "-"), running=result["running_probes"],
+                                     queued=result["queued_probes"], failed=result["failed_probes"])
                 progress.refresh()
                 if result["status"] in ("complete", "checked", "failed") or any(
                     word in result.get("scheduler", "") for word in ("FAILED", "CANCELLED", "TIMEOUT", "COMPLETED", "OUT_OF_MEMORY", "NODE_FAIL")):

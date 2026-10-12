@@ -52,9 +52,8 @@ these external stacks.
 
 `configs/workflow.yaml` is the single entry point for pinned source repositories,
 Hugging Face downloads, benchmark selection, runtime commands and resources.
-The default selects QE and the three Higgs head configurations. Public prepared
-anomaly SB/SR data was not found in the inspected Hub repositories, so anomaly
-is excluded from this download example until its prepared data is supplied.
+The default selects QE, the three Higgs head configurations, and anomaly
+detection using the pinned `tihsu/AD-Data` SB/SR dataset.
 
 ```bash
 cd ~/PycharmProjects/EveNet-Benchmark
@@ -142,13 +141,85 @@ single-node runtime to initialize Ray. Multi-node execution requires an existing
 cluster. The driver checks alive nodes and aggregate CPU/GPU capacity, waits for
 available resources, and disconnects its own client without stopping the cluster.
 
-`resources.nodes`, `gpus_per_node`, `workers` and `cpus_per_worker` describe the
-training demand on that existing Ray cluster. They feed the native EveNet Ray
-worker configuration. They do not allocate nodes or enforce worker placement on
-each node. Set the same worker count for all candidates in a controlled study.
+`resources.nodes`, `gpus_per_node`, and `cpus_per_node` describe the capacity
+of your existing allocation. `resources.max_parallel` limits the number of
+concurrent probes within one checkpoint run. The runner also sums each active
+probe's GPU and CPU demand and admits only jobs that fit; a job-count limit alone
+would not prevent six 16-GPU jobs from being submitted to a 16-GPU allocation.
+The native Ray trainers reserve the actual devices. CPU accounting includes one
+trainer CPU per probe and leaves `driver_cpus` outside the probe budget.
+
+Per-probe `overrides.platform` in `configs/probe.yaml` controls worker count and
+batch size. Each worker gets one GPU. `resources.cpus_per_worker` supplies the
+shared CPU default; a probe can override it. The optional legacy `resources.workers`
+is a shared fallback, not the allocation's total GPU count, and per-probe values
+take precedence. Planning prints the effective resource and batch table and saves
+it as `probe_resources` in `plan.json`; the report also records resolved resources.
+
+| Probe | Training GPUs | Batch per GPU | Global batch |
+| --- | ---: | ---: | ---: |
+| QE | 16 | 1024 | 16384 |
+| Higgs Cls | 4 | 2048 | 8192 |
+| Higgs Cls+Asn | 4 | 2048 | 8192 |
+| Higgs Cls+Seg | 4 | 2048 | 8192 |
+| AD | 4 | 4096 | 16384 |
+
+GPU counts follow [EveNet Table 2](https://arxiv.org/html/2601.17126v1#S2.T2).
+The paper does not specify batch sizes; per-GPU batches come from the pinned
+[QE recipe](https://github.com/EveNet-HEP/TT2L-QC-Study/blob/ba0f9050cee8ae6eb799dbb59d37a1cc331343d7/examples/Train_example.yaml),
+[Higgs recipe](https://github.com/EveNet-HEP/Exotic-Higgs-Study/blob/c248a12749479f4d58778e76e10449a4d1d0292a/configs/train.yaml), and
+[AD recipe](https://github.com/EveNet-HEP/CMSOpenData-Upsilon-AnomalyDetection/blob/ff4f16845a7919d8c3e49f29240f9d79071e2a64/config/full_train.yaml).
+The public AD recipe uses two GPUs; this suite deliberately uses the paper's four
+GPUs while retaining the recipe's per-GPU batch. The global batch assumes one
+optimizer update per batch with no gradient accumulation, as in the native trainer.
+The existing 20-epoch, fixed-subset probe budget remains a quick benchmark rather
+than a reproduction of the full paper training budget.
+
+For the default four-node, 16-GPU allocation, QE runs alone; after it finishes,
+the three Higgs probes and AD can run together (4 + 4 + 4 + 4 GPUs).
+Admission conservatively counts a probe's training resources until its entire
+pipeline completes; CPU-only stages may leave GPUs idle. Failures are recorded
+per probe and other probes continue. Each probe keeps its own configs, checkpoints,
+predictions, and logs. Only the coordinator writes the combined report.
+
+The native AD generator uses `cuda:0` without Ray. Both AD generation and its
+JetNet evaluation now run inside a Ray task reserving one GPU, so `cuda:0` refers
+to the assigned device rather than a GPU occupied by another probe. Generation
+keeps the existing single-rank seed/event semantics; its batch is separately set
+by `evaluation.batch_size`. Both the training and AD analysis runtimes need Ray.
+
 All workers must see the same code, prepared data and output paths, with compatible
 Python/Ray/model dependencies. GPU visibility and container mounts remain part of
-the cluster you set up.
+the cluster you set up. Ray controls device placement; the runner does not pin a
+particular probe to a specific physical node. Multiple checkpoint drivers share
+Ray's cluster resources, but each driver's local concurrency limit is independent.
+
+For your interactive allocation, first start your existing Ray cluster on all
+four nodes using the same Shifter image. `salloc` reserves resources but does not
+start Ray. Then run from the benchmark checkout:
+
+```bash
+export RAY_ADDRESS=HEAD_IP:6379
+export PYTHONPATH="$PWD${PYTHONPATH:+:$PYTHONPATH}"
+shifter ray status --address="$RAY_ADDRESS"
+# Confirm 4 alive nodes, 16 GPUs, and enough CPUs (QE needs 481).
+shifter python3 -m benchmark.workflow run configs/workflow.yaml --name plan-preview --dry-run
+shifter python3 -m benchmark.workflow run configs/workflow.yaml --name candidate-parallel
+```
+
+Replace `HEAD_IP` with the cluster head address. The default CPU budget assumes
+Ray advertises 128 logical CPUs per node. If your cluster advertises fewer CPUs,
+adjust the CPU capacity and per-worker CPU requests together; GPU counts and
+batch sizes need not change. Keep resource settings fixed across candidates.
+
+If using your external Ray job submitter, submit one benchmark workflow per
+checkpoint and let its internal scheduler launch probes. The
+[Ray Jobs endpoint](https://docs.ray.io/en/latest/cluster/running-applications/job-submission/quickstart.html)
+is `http://HEAD_IP:8265`, while `RAY_ADDRESS=HEAD_IP:6379` connects Python drivers
+to the cluster. Do not reserve training GPUs on the job entrypoint: native Ray
+Train workers request them separately. Your shell throttle controls active
+checkpoint workflows, not their GPU allocation. Check each background command's
+exit status; a final bare `wait` does not reliably report earlier job failures.
 
 Inside an existing Shifter allocation, use `runtime.driver: [shifter, python3]`
 with `backend: local` to launch the driver once. The commands inside that driver
@@ -165,9 +236,8 @@ evenet-benchmark run configs/workflow.yaml --name script-preview --backend slurm
 evenet-benchmark run configs/workflow.yaml --name slurm-v1 --backend slurm
 ```
 
-To enable anomaly, add `anomaly` to `conditions.benchmarks` and supply
-`variables.ANOMALY_DATA`, or a matching `downloads.ANOMALY_DATA` Hub entry.
-The native prepared files required below must already exist in that layout.
+Anomaly is enabled through `conditions.benchmarks` and `downloads.ANOMALY_DATA`.
+For an existing local dataset, `variables.ANOMALY_DATA` can override that path.
 Grid remains explicitly skipped.
 
 Public sources inspected for the initial adapters:
@@ -424,7 +494,8 @@ They exercise fixed selection, split isolation, changed-input detection, shared
 Higgs data and enabled loss objectives, external-Ray capacity checks, one-driver
 Slurm script generation, progress/failure reporting, Hub revision/file selection,
 checkpoint transfer, validation-based selection, argument forwarding, weighted
-classification metrics, and report comparability. They are not evidence of
+classification metrics, report comparability, CPU/GPU-bounded parallel dispatch,
+failure isolation, and native AD GPU reservations. They are not evidence of
 successful NERSC training, QE ROOT execution, anomaly generation, or physics
 improvement. Run the three native adapters against your data before treating the
 reports as production validated. A real Hub smoke download retrieved only the

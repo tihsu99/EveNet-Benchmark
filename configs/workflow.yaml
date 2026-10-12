@@ -12,13 +12,13 @@ ray:
   address: auto
   wait_timeout: 300
 
-# These describe Ray training demand, not a new cluster allocation.
+# Capacity of the existing allocation. Per-probe workers/batches are in probe.yaml.
 resources:
-  nodes: 1
-  gpus_per_node: 1
-  cpus_per_node: 8
-  workers: 1
-  cpus_per_worker: 4
+  nodes: 4
+  gpus_per_node: 4
+  cpus_per_node: 128
+  cpus_per_worker: 30
+  max_parallel: 4
   # Optional Slurm driver submission. Only one CPU driver task is submitted.
   driver_cpus: 2
   time: '02:00:00'
@@ -40,7 +40,6 @@ conditions:
   benchmarks: [qe, exotic_higgs_cls, exotic_higgs_asn, exotic_higgs_seg, anomaly]
   suite_overrides:
     adaptation:
-      platform: {batch_size: 512}
       options:
         Training: {total_epochs: 20, epochs: 20}
 

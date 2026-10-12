@@ -15,9 +15,7 @@ execution:
 # settings remain in the task templates unless overridden here or per task.
 adaptation:
   platform:
-    number_of_workers: 1
-    resources_per_worker: {CPU: 8, GPU: 1}
-    batch_size: 512
+    resources_per_worker: {CPU: 30, GPU: 1}
     use_gpu: true
   options:
     Training:
@@ -39,6 +37,9 @@ benchmarks:
     train_yaml: ${QE_REPO}/examples/Train_example.yaml
     predict_yaml: ${QE_REPO}/examples/Predict_example.yaml
     normalization_asset: normalization.pt
+    # GPUs: paper Table 2; per-worker batch: pinned Train_example.yaml.
+    overrides:
+      platform: {number_of_workers: 16, batch_size: 1024}
     data:
       train: ["${QE_DATA}/train/*.parquet"]
       validation: ["${QE_DATA}/val/*.parquet"]
@@ -74,6 +75,8 @@ benchmarks:
     template_tokens: {MASS: "30"}
     normalization_asset: normalization.pt
     overrides:
+      # GPUs: paper Table 2; per-worker batch: pinned configs/train.yaml.
+      platform: &higgs_platform {number_of_workers: 4, batch_size: 2048}
       options:
         Training:
           Components:
@@ -121,6 +124,7 @@ benchmarks:
     label: Exotic Higgs / Cls+Asn
     variant_label: Cls+Asn
     overrides:
+      platform: *higgs_platform
       options:
         Training:
           ProgressiveTraining: *higgs_schedule
@@ -134,6 +138,7 @@ benchmarks:
     label: Exotic Higgs / Cls+Seg
     variant_label: Cls+Seg
     overrides:
+      platform: *higgs_platform
       options:
         Training:
           ProgressiveTraining: *higgs_schedule
@@ -149,6 +154,13 @@ benchmarks:
     train_yaml: ${ANOMALY_REPO}/config/full_train.yaml
     workflow_yaml: ${ANOMALY_REPO}/config/workflow.yaml
     normalization_asset: normalization.pt
+    # Table 2 specifies 4 GPUs. Batch is from the public recipe (paper omits it).
+    # The public recipe itself uses 2 GPUs; the paper GPU count takes precedence.
+    overrides:
+      platform:
+        number_of_workers: 4
+        batch_size: 4096
+        resources_per_worker: {CPU: 28, GPU: 1}
     data:
       train: ["${ANOMALY_DATA}/SB/data.parquet"]
       fold: {count: 5, index: 0}
@@ -161,6 +173,7 @@ benchmarks:
     evaluation:
       kind: anomaly
       generated_events: 50000
+      batch_size: 4096
       max_background: 2000
       metric_paths:
         calibration_magnitude: [before cut, mean_calibration_difference]
