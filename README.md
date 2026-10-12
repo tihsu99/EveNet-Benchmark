@@ -286,6 +286,14 @@ the selected core through `PYTHONPATH`. The core training entry point still
 requires the user's `WANDB_API_KEY` environment variable, even with offline
 logging. Keys are never written by this runner.
 
+Generated model configs keep `event_info` in a sibling file such as
+`train.event_info.yaml`, referenced through EveNet's native `default:` syntax.
+Keep that file beside `train.yaml` (likewise for prediction). This allows Ray
+workers to reload the config after the driver has constructed `EventInfo`;
+flattening it inline can cause `AttributeError: 'EventInfo' object has no attribute 'merge'`.
+After updating the runner, rerun with a new checkpoint name to regenerate configs;
+existing failed run artifacts are retained.
+
 ## Prepare immutable subsets
 
 ```bash

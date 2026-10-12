@@ -23,6 +23,18 @@ def save_yaml(path, value):
     Path(path).write_text(yaml.safe_dump(value, sort_keys=False))
 
 
+def save_model_config(path, config):
+    """Keep EventInfo reloadable by the native driver and Ray workers."""
+    path = Path(path)
+    config = copy.deepcopy(config)
+    if "event_info" in config:
+        event_path = path.with_name(f"{path.stem}.event_info.yaml")
+        save_yaml(event_path, config["event_info"])
+        # The native default branch replaces the previously constructed EventInfo.
+        config["event_info"] = {"default": event_path.name}
+    save_yaml(path, config)
+
+
 def build_configs(suite, task, base, prepared, work, network, checkpoint):
     core = path_value(suite["core"], base)
     repository = path_value(task["repository"], base)
@@ -117,7 +129,7 @@ def run_task(name, task, suite, base, prepared, work, network, checkpoint, weigh
     environment["WANDB_MODE"] = execution.get("wandb_mode", "offline")
     work.mkdir(parents=True)
     train, prediction = build_configs(suite, task, base, prepared, work, network, checkpoint)
-    save_yaml(work / "train.yaml", train)
+    save_model_config(work / "train.yaml", train)
     save_yaml(work / "evaluation.yaml", task["evaluation"])
     save_yaml(work / "load_policy.yaml", suite["load_policy"])
     commands = []
@@ -162,7 +174,7 @@ def run_task(name, task, suite, base, prepared, work, network, checkpoint, weigh
     worker("best", ["--checkpoint", work / "checkpoints", "--output", work / "best.json"], "select")
     best = json.loads((work / "best.json").read_text())
     prediction["options"]["Training"]["model_checkpoint_load_path"] = best["path"]
-    save_yaml(work / "predict.yaml", prediction)
+    save_model_config(work / "predict.yaml", prediction)
     kind = task["evaluation"]["kind"]
     if kind == "anomaly":
         anomaly_workflow(task, base, prepared, work)

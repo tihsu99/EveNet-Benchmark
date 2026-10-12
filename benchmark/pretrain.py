@@ -9,7 +9,7 @@ import sys
 from .common import (digest, file_hash, load_suite, merge, path_value, read_yaml,
                      resolve_template, run_command, source_revision, write_json)
 from .prepare import verify_manifest
-from .run import save_yaml
+from .run import save_model_config
 
 
 def main():
@@ -47,7 +47,7 @@ def main():
     config["logger"]["local"] = {"save_dir": str(output / "logs"), "name": "pretraining", "version": "0"}
     config["logger"]["wandb"].update(project=suite.get("wandb_project", "EveNet-Benchmark"), run_name=output.name)
     config["logger"]["wandb"].pop("id", None)
-    save_yaml(output / "train.yaml", config)
+    save_model_config(output / "train.yaml", config)
     runtime = suite.get("execution", {}).get("python", [sys.executable])
     environment = dict(os.environ)
     environment["PYTHONPATH"] = os.pathsep.join([str(core), str(Path(__file__).resolve().parent.parent),
