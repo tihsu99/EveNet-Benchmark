@@ -9,7 +9,7 @@ wandb_project: EveNet-Benchmark
 execution:
   python: [python3]
   analysis_python: [python3]
-  wandb_mode: offline
+  wandb_mode: online
 
 # Same adaptation budget for every candidate. Existing native task optimizer
 # settings remain in the task templates unless overridden here or per task.
