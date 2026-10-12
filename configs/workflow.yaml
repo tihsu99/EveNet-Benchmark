@@ -1,7 +1,6 @@
 schema_version: 1
-workdir: ../benchmark-work
-# Base for downloads.*.local_dir; absolute paths and environment variables work.
-# Relative roots are resolved against workdir. Sources and run outputs stay there.
+# Storage root: data/ holds shared assets; version/<name>/ holds each evaluation.
+# Relative roots resolve against this YAML; environment variables are supported.
 download_root: /pscratch/sd/t/tihsu/database/EveNet-BenchMark
 suite: probe.yaml
 reference: paper_reference.yaml
@@ -71,19 +70,19 @@ downloads:
     repo_id: Avencast/EveNet
     repo_type: model
     revision: afba5b47478f0c25c6a5a5755ac30738925d73ad
-    local_dir: assets/models
+    local_dir: models
     allow_patterns: [checkpoints.20M.a4.last.ckpt, SSL.20M.last.ckpt]
   QE_DATA:
     repo_id: Avencast/EveNet-TT2L-QuantumCorrelation
     repo_type: dataset
     revision: f710a2216aaaef6673ed6b9a3dc064dceb65c84c
-    local_dir: assets/qe
+    local_dir: qe
     allow_patterns: ['train/*.parquet', 'val/*.parquet', 'test/*.parquet', 'train/normalization.pt', 'train/shape_metadata.json']
   HIGGS_DATA:
     repo_id: Avencast/EveNet-ExoticHiggs-H2a4b
     repo_type: dataset
     revision: 277309507ff23cd63d1d7755605e72c2cd2c3699
-    local_dir: assets/higgs
+    local_dir: higgs
     allow_patterns:
       - 'evenet-train/evenet-ma30/*.parquet'
       - 'evenet-test/evenet-ma30/*.parquet'

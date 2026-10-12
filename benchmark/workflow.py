@@ -43,11 +43,10 @@ def configuration(path):
     cfg = read_yaml(path)
     if cfg.get("schema_version") != 1:
         raise ValueError("Workflow needs schema_version: 1")
-    root = path_value(cfg["workdir"], path.parent)
-    download_root = path_value(cfg.get("download_root", "."), root)
+    root = path_value(cfg.get("download_root", cfg.get("workdir")), path.parent)
     environment = dict(os.environ)
     for key, item in {**cfg.get("sources", {}), **cfg.get("downloads", {})}.items():
-        base = download_root if key in cfg.get("downloads", {}) else root
+        base = root / "data" if key in cfg.get("downloads", {}) else root
         environment[key] = str(path_value(item.get("path", item.get("local_dir")), base))
     for key, value in cfg.get("variables", {}).items():
         environment[key] = expand(value, environment)
@@ -64,10 +63,10 @@ def fetch(cfg, root, environment, dry_run=False):
     with locked(root / ".download.lock"):
         old = json.loads(lock_path.read_text()) if lock_path.exists() else None
         if old and old["spec_id"] != receipt["spec_id"]:
-            raise ValueError("Download/source specification changed; choose a new workdir")
+            raise ValueError("Download/source specification changed; choose a new download_root")
         if old and any(Path(asset["path"]).resolve() != Path(environment[key]).resolve()
                        for key, asset in old["assets"].items()):
-            raise ValueError("Download/source storage path changed; choose a new workdir")
+            raise ValueError("Download/source storage path changed; choose a new download_root")
         for key, source in tqdm(entries.items(), desc="Sources and downloads", unit="source"):
             target = Path(environment[key])
             if key in cfg.get("sources", {}):
@@ -166,9 +165,10 @@ def make_plan(cfg, path, root, environment, args):
     candidate = expand(cfg.get("candidate", {}), environment)
     checkpoint = None if args.scratch else str(path_value(args.checkpoint or candidate["checkpoint"], path.parent))
     network = str(path_value(args.network or candidate["network"], path.parent))
-    plan_dir = root / "jobs" / args.name
-    if plan_dir.exists():
-        raise FileExistsError(f"Use a new checkpoint name: {plan_dir}")
+    version_dir = root / "version" / args.name
+    if version_dir.exists():
+        raise FileExistsError(f"Use a new checkpoint name: {version_dir}")
+    plan_dir = version_dir / "job"
     plan_dir.mkdir(parents=True)
     suite_path = plan_dir / "suite.yaml"
     from .run import save_yaml
@@ -178,7 +178,7 @@ def make_plan(cfg, path, root, environment, args):
     lock = json.loads(lock_path.read_text()) if lock_path.exists() else None
     plan = {"schema_version": 1, "name": args.name, "suite": str(suite_path), "network": network,
             "checkpoint": checkpoint, "weight_source": candidate.get("weight_source", "state_dict"),
-            "prepared": str(root / "prepared"), "output": str(root / "runs" / args.name),
+            "prepared": str(root / "data" / "prepared"), "output": str(version_dir / "results"),
             "reference": str(path_value(cfg.get("reference", "paper_reference.yaml"), path.parent)),
             "asset_lock": str(lock_path), "asset_lock_id": digest(lock) if lock else None,
             "resources": resource, "runtime": runtime, "ray": expand(cfg.get("ray", {}), environment),
@@ -249,7 +249,7 @@ def execute(plan_path):
                 if target.exists():
                     manifest = verify_manifest(target)
                     if manifest["selection"] != task["data"] or manifest["seed"] != suite["seed"]:
-                        raise ValueError(f"Prepared selection changed: {group}; use a new workdir")
+                        raise ValueError(f"Prepared selection changed: {group}; use a new download_root")
                 else:
                     temporary = prepared / (".partial-" + uuid.uuid4().hex)
                     try:
@@ -348,7 +348,7 @@ def main():
             _, _, root, _ = configuration(args.config)
             if not args.name:
                 parser.error("status requires --name")
-            plan_path = root / "jobs" / args.name / "plan.json"
+            plan_path = root / "version" / args.name / "job" / "plan.json"
         if not args.watch:
             status(plan_path)
             return
@@ -371,7 +371,7 @@ def main():
         fetch(cfg, root, environment, args.dry_run)
     elif args.action == "compare":
         from .plot import render
-        reports = args.reports or sorted((root / "runs").glob("*/report.json"))
+        reports = args.reports or sorted((root / "version").glob("*/results/report.json"))
         if not reports:
             parser.error("No checkpoint reports found")
         print(render(reports, root / "comparison", reference=path_value(cfg.get("reference", "paper_reference.yaml"), path.parent)))

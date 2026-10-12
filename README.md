@@ -73,38 +73,55 @@ evenet-benchmark status configs/workflow.yaml --name candidate --watch
 evenet-benchmark compare configs/workflow.yaml
 ```
 
-Run `status --watch` from another terminal during execution. Downloads show Hub
-progress; preparation shows dataset/file progress; probes show stage counters,
-native training output, and a heartbeat while waiting. The driver updates
-`jobs/<name>/status.json`, each probe updates `runs/<name>/<probe>/progress.json`,
-and completed/failed probe counts appear in `status`. Noninteractive Slurm logs
-retain stage messages and heartbeat lines without requiring terminal rendering.
-
-Outputs live under the configured `workdir`: `assets.lock.json` pins selected
-Hub revisions and source commits; `prepared/` holds reusable verified subsets;
-`jobs/<name>/` holds plans/status/logs; `runs/<name>/` holds the report and figures;
-`comparison/` holds combined results. Use a distinct name per invocation.
-Changing downloads or data selection requires a new workdir. `run --dry-run`
-writes a reviewable plan (and Slurm script when selected), reserving that name.
-
-Set `download_root` in the workflow YAML to choose storage for downloaded datasets
-and model checkpoints independently of the run directory:
+Set `download_root` in the workflow YAML to choose the storage root for data
+and all evaluation results:
 
 ```yaml
-workdir: ../benchmark-work
 download_root: /shared/your-storage/evenet
 ```
 
-With the supplied `local_dir` values, this stores QE data in
-`/shared/your-storage/evenet/assets/qe`, Higgs data in `assets/higgs`, and checkpoints
-in `assets/models`. Sources, prepared subsets, locks, and reports remain under
-`workdir`. The default `download_root: .` preserves the existing layout. Relative
-roots resolve against `workdir`; environment variables such as `${SCRATCH}/evenet`
-are supported. An absolute `downloads.<name>.local_dir` overrides the root for
-that download. Resolved locations automatically feed the probe configuration.
-Use `download --dry-run` to inspect destinations before downloading. Choose a new
-`workdir` if storage paths change after its download lock has been written;
-existing files are not moved automatically.
+The supplied configuration produces this layout (`<name>` is the run's `--name`):
+
+```text
+<download_root>/
+  data/
+    qe/                   # Downloaded QE dataset
+    higgs/                # Downloaded Higgs dataset
+    models/               # Downloaded reference checkpoints
+    prepared/             # Shared, verified probe subsets
+  version/
+    <name>/
+      job/                # Plan, resolved suite, status, driver and Slurm logs
+      results/
+        candidate.ckpt    # Snapshot of the evaluated checkpoint (unless scratch)
+        report.json
+        figures/
+        <probe>/          # Adapted checkpoints, predictions, metrics and logs
+  sources/                # Downloaded source repositories
+  assets.lock.json
+  comparison/             # Combined checkpoint comparison
+```
+
+Relative `download_root` values resolve against the workflow YAML directory;
+environment variables such as `${SCRATCH}/evenet` are supported. `workdir` is
+accepted as a fallback only when `download_root` is absent. Each download's
+`local_dir` is relative to `data/`; an absolute value can explicitly override it.
+Resolved locations automatically feed the probe configuration. Use
+`download --dry-run` to inspect destinations before downloading.
+
+Run `status --watch` from another terminal during execution. The driver updates
+`version/<name>/job/status.json`, and each probe updates
+`version/<name>/results/<probe>/progress.json`. Status and comparison commands
+find runs under `version/` automatically. Downloads and probes show progress,
+native output, and periodic heartbeat messages in terminal output and logs.
+Use a distinct name per invocation. `run --dry-run` writes a reviewable plan
+(and Slurm script when selected), reserving that name.
+
+Changing a locked download specification or prepared data selection requires a
+new `download_root`. Existing files from the previous `assets/`, `jobs/`, and
+`runs/` layout are not moved automatically. Older plans can still be inspected
+with `status /absolute/path/to/plan.json`; use `compare --reports` to explicitly
+select older report files.
 
 The default weights and network come from the public v1 release. To probe a new
 pair-representation checkpoint, set `sources.EVENET_CORE.path` to its matching
