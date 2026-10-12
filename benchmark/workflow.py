@@ -62,8 +62,12 @@ def fetch(cfg, root, environment, dry_run=False):
     lock_path = root / "assets.lock.json"
     with locked(root / ".download.lock"):
         old = json.loads(lock_path.read_text()) if lock_path.exists() else None
-        if old and old["spec_id"] != receipt["spec_id"]:
-            raise ValueError("Download/source specification changed; choose a new download_root")
+        if old:
+            # Compare only locked entries so additions also work with existing locks.
+            previous_entries = {key: entries[key] for key in old["assets"] if key in entries}
+            if (set(previous_entries) != set(old["assets"])
+                    or digest(previous_entries) != old["spec_id"]):
+                raise ValueError("Existing download/source specification changed; choose a new download_root")
         if old and any(Path(asset["path"]).resolve() != Path(environment[key]).resolve()
                        for key, asset in old["assets"].items()):
             raise ValueError("Download/source storage path changed; choose a new download_root")
@@ -176,6 +180,10 @@ def make_plan(cfg, path, root, environment, args):
     load_suite(suite_path)  # Validate shared data selections after overrides.
     lock_path = root / "assets.lock.json"
     lock = json.loads(lock_path.read_text()) if lock_path.exists() else None
+    if lock is not None:
+        # Later dataset additions must not invalidate already planned runs.
+        lock_path = plan_dir / "assets.lock.json"
+        write_json(lock_path, lock)
     plan = {"schema_version": 1, "name": args.name, "suite": str(suite_path), "network": network,
             "checkpoint": checkpoint, "weight_source": candidate.get("weight_source", "state_dict"),
             "prepared": str(root / "data" / "prepared"), "output": str(version_dir / "results"),

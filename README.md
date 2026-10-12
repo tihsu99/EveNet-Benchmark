@@ -117,8 +117,11 @@ native output, and periodic heartbeat messages in terminal output and logs.
 Use a distinct name per invocation. `run --dry-run` writes a reviewable plan
 (and Slurm script when selected), reserving that name.
 
-Changing a locked download specification or prepared data selection requires a
-new `download_root`. Existing files from the previous `assets/`, `jobs/`, and
+Adding a new download/source entry reuses the existing storage and pinned
+revisions; rerun `download` to fetch the new entry. Changing or removing an
+existing locked entry, or changing prepared data selection, requires a new
+`download_root`. Each new run plan saves its own asset lock snapshot, so later
+additions do not invalidate that plan. Existing files from the previous `assets/`, `jobs/`, and
 `runs/` layout are not moved automatically. Older plans can still be inspected
 with `status /absolute/path/to/plan.json`; use `compare --reports` to explicitly
 select older report files.
