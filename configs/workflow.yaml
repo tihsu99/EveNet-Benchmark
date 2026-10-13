@@ -30,10 +30,12 @@ resources:
 
 runtime:
   # Launch from the host: analysis environments must stay outside Shifter.
-  driver: [/pscratch/sd/t/tihsu/env/benchmark/bin/python]
+  # Create this shared directory before launch; all Python runtimes use it.
+  # Existing Ray session/artifact paths still require a cluster-side migration.
+  driver: [env, &scratch_tmp TMPDIR=/pscratch/ad/t/tihsu/tmp, /pscratch/sd/t/tihsu/env/benchmark/bin/python]
   # Ray head/workers must be started with this same host/container mount.
-  python: [shifter, '--volume=/tmp/ray:/tmp/ray', python3]
-  analysis_python: [/pscratch/sd/t/tihsu/env/benchmark/bin/python]
+  python: [shifter, '--volume=/tmp/ray:/tmp/ray', env, *scratch_tmp, python3]
+  analysis_python: [env, *scratch_tmp, /pscratch/sd/t/tihsu/env/benchmark/bin/python]
   # Only used by backend: slurm; image is placed in the SBATCH header.
   image: null
   shifter_args: []
@@ -46,11 +48,11 @@ conditions:
     benchmarks:
       anomaly:
         execution:
-          prediction_python: [/pscratch/sd/t/tihsu/env/benchmark/bin/python]
+          prediction_python: [env, *scratch_tmp, /pscratch/sd/t/tihsu/env/benchmark/bin/python]
           native_on_driver: true
       qe:
         execution:
-          analysis_python: [/pscratch/sd/t/tihsu/env/unfold/bin/python]
+          analysis_python: [env, *scratch_tmp, /pscratch/sd/t/tihsu/env/unfold/bin/python]
         # If libRooUnfold is not on this environment's library search path:
         # evaluation:
         #   roounfold_library: /absolute/path/to/libRooUnfold.so

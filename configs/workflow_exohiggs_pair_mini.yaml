@@ -19,9 +19,11 @@ resources:
   driver_cpus: 2
 
 runtime:
-  driver: [/pscratch/sd/t/tihsu/env/benchmark/bin/python]
-  python: [shifter, '--volume=/tmp/ray:/tmp/ray', python3]
-  analysis_python: [/pscratch/sd/t/tihsu/env/benchmark/bin/python]
+  # Create this shared directory before launch; all Python runtimes use it.
+  # Existing Ray session/artifact paths still require a cluster-side migration.
+  driver: [env, &scratch_tmp TMPDIR=/pscratch/ad/t/tihsu/tmp, /pscratch/sd/t/tihsu/env/benchmark/bin/python]
+  python: [shifter, '--volume=/tmp/ray:/tmp/ray', env, *scratch_tmp, python3]
+  analysis_python: [env, *scratch_tmp, /pscratch/sd/t/tihsu/env/benchmark/bin/python]
 
 conditions:
   benchmarks: [exotic_higgs_cls]
