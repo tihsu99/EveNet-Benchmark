@@ -14,7 +14,9 @@ resources:
   gpus_per_node: 4
   cpus_per_node: 128
   cpus_per_worker: 30
-  max_parallel: 3
+  # Temporary mitigation for the observed Ray worker job-ID assertion.
+  # Keep each probe at 4 GPUs; restore concurrency after a validated runtime fix.
+  max_parallel: 1
   driver_cpus: 2
 
 runtime:
