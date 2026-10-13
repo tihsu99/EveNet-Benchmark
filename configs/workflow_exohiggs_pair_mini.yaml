@@ -10,12 +10,11 @@ ray:
   wait_timeout: 300
 
 resources:
-  nodes: 3
+  nodes: 4
   gpus_per_node: 4
   cpus_per_node: 128
   cpus_per_worker: 30
-  # Temporary mitigation for the observed Ray worker job-ID assertion.
-  # Keep each probe at 4 GPUs; restore concurrency after a validated runtime fix.
+  # One classification probe per candidate; launch four candidates externally.
   max_parallel: 1
   driver_cpus: 2
 
@@ -25,7 +24,7 @@ runtime:
   analysis_python: [/pscratch/sd/t/tihsu/env/benchmark/bin/python]
 
 conditions:
-  benchmarks: [exotic_higgs_cls, exotic_higgs_asn, exotic_higgs_seg]
+  benchmarks: [exotic_higgs_cls]
   suite_overrides:
     # Fine-tuning rates and epoch budget are shared in probe.yaml.
     # Warmup retains the native recipe's one-epoch setting.
