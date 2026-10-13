@@ -10,7 +10,7 @@ ray:
   wait_timeout: 300
 
 resources:
-  nodes: 4
+  nodes: 3
   gpus_per_node: 4
   cpus_per_node: 128
   cpus_per_worker: 30
