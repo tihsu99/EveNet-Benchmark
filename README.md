@@ -322,25 +322,81 @@ The paper does not specify batch sizes; per-GPU batches come from the pinned
 The public AD recipe uses two GPUs; this suite deliberately uses the paper's four
 GPUs while retaining the recipe's per-GPU batch. The global batch assumes one
 optimizer update per batch with no gradient accumulation, as in the native trainer.
-Epoch limits and early stopping are inherited from each pinned public recipe;
-the runner does not replace them with a shared 20-epoch limit or disable stopping.
+Higgs epochs and patience follow Sec. IV of the paper. QE and AD retain their
+pinned native epoch/patience settings where the paper does not specify values.
 
 | Probe | Max epochs (`epochs`) | Schedule epochs (`total_epochs`) | Early stopping patience | Monitor |
 | --- | ---: | ---: | ---: | --- |
 | QE | 300 | 300 | 50 | `val/loss` |
-| Each Higgs probe | 50 | 200 | 10 | `val/loss` |
+| Each Higgs probe | 100 below 99K training events, else 50 | Same as max epochs | 20 | `val/loss` |
 | AD | 1000 | 1000 | 1000 | `val/generation-recon` |
 
 The native trainer reads `Training.EarlyStopping`; the separate Higgs
-`Training.patience: 20` field is not used by that trainer. The effective value 10
-comes from its [options.yaml](https://github.com/EveNet-HEP/Exotic-Higgs-Study/blob/c248a12749479f4d58778e76e10449a4d1d0292a/configs/options.yaml).
+`Training.patience: 20` field is not used by that trainer. The shared probe
+explicitly overrides the native nested patience of 10 with the paper's 20.
 The AD settings come from its [options.yaml](https://github.com/EveNet-HEP/CMSOpenData-Upsilon-AnomalyDetection/blob/ff4f16845a7919d8c3e49f29240f9d79071e2a64/config/options.yaml).
 `epochs` limits trainer execution, while `total_epochs` controls the optimizer
-schedule; they remain distinct exactly as specified by the recipe. Explicit
-`adaptation.options.Training` and per-probe `overrides.options.Training` values
-still take precedence, including nested `EarlyStopping` overrides.
+schedule. Explicit `adaptation.options.Training` and per-probe
+`overrides.options.Training` values take precedence over native settings,
+including nested `EarlyStopping` overrides. A configured `epoch_budget` determines
+the final execution and schedule epochs from the prepared training count.
 These are public-recipe settings, not a claim of exact paper reproduction:
 the fixed subsets, single AD fold and requested generation budget remain in use.
+
+All workflows using `configs/probe.yaml`, including the mini campaign, apply
+task-specific `pretrained_overrides` when `--checkpoint` is supplied and
+`scratch_overrides` with `--scratch`. These merge after the native recipe and
+before shared `adaptation` and task `overrides`, so explicit custom settings
+retain precedence. Loading checkpoint tensors alone does not change optimizer
+settings. Pretraining itself uses a separate command and is unaffected.
+
+Pretrained learning rates follow
+[Sec. II.3 / Table 2](https://arxiv.org/html/2601.17126v1#S2.SS3), with the
+Higgs-specific intermediate rate in Sec. IV and AD confirmation in Sec. VI:
+
+| Task | Module | Base LR | Peak LR at configured GPU count |
+| --- | --- | ---: | ---: |
+| QE (16 GPUs) | GlobalEmbedding, PET, ObjectEncoder | `5e-6` | `2e-5` |
+| QE (16 GPUs) | Assignment, TruthGeneration, InvisibleInputProjector | `5e-5` | `2e-4` |
+| Higgs (4 GPUs) | PET | `4e-5` | `8e-5` |
+| Higgs (4 GPUs) | GlobalEmbedding, ObjectEncoder | `1.2e-4` | `2.4e-4` |
+| Higgs (4 GPUs) | Active task heads | `4e-4` | `8e-4` |
+| AD (4 GPUs) | PET, ObjectEncoder | `5e-5` | `1e-4` |
+| AD (4 GPUs) | GlobalEmbedding, GlobalGeneration, ReconGeneration | `5e-4` | `1e-3` |
+
+All active groups use AdamW. QE's public `Train_example.yaml` is a scratch
+recipe; the pretrained encoder reduction is explicit in the probe. The pair
+core's InvisibleInputProjector shares an explicit AdamW/rate group with
+TruthGeneration, avoiding its default Lion configuration taking precedence.
+For AD, the component mapping follows the pinned `config/options.yaml`:
+GlobalEmbedding retains its full conditioning rate but has a separate group
+from PET, so it cannot override PET's reduced rate. Scratch uses uniform base
+rates of `5e-5` (QE), `4e-4` (Higgs), and `5e-4` (AD); no pretrained-only
+reductions are applied to random initialization.
+
+The Higgs component mapping for
+[Sec. IV](https://arxiv.org/html/2601.17126v1#S4)
+follows the pinned Higgs `options_pretrain.yaml`, which
+the upstream `Make_script.py` selects for pretrained candidates. The intermediate
+modules use a separate optimizer group from PET because the native trainer takes
+the first component's learning rate for each group. All active modules remain
+trainable; the heavy-resonance task's layer-freezing/adapters are not requested
+by this Higgs prescription.
+
+The Higgs task's `epoch_budget` mapping selects 100 epochs below 99,000 prepared
+training events and 50 epochs at or above that threshold. It sets both execution
+and cosine-schedule epochs after native/explicit Training settings are merged;
+a task-level mapping overrides the suite-level mapping. Early stopping uses the
+consumed `Training.EarlyStopping.patience: 20`, not the unused flat `patience`.
+One-epoch warmup remains a native-recipe choice. Workflows without `epoch_budget`
+retain their existing epoch settings. Environment preflight defers this count-based
+selection until data preparation. The inherited `train_fraction` applies to the
+available training pool after validation splitting; verify the actual prepared
+count before identifying it with the paper's 10,000-event point (5% of a
+200,000-event reference). These mini models and this probe's metrics
+do not constitute a complete reproduction of the paper. Sync the workflow and
+the benchmark Python files, then launch with new run names; saved plans and running jobs
+are not updated by edits to the workflow.
 
 QE uses `diffusion_every_n_epochs: 100` and
 `Components.TruthGeneration.diffusion_steps: 20` under

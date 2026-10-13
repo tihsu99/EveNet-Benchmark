@@ -1,0 +1,67 @@
+schema_version: 1
+# Separate source lock and prepared subsets; reuse the pinned Higgs download.
+download_root: /pscratch/sd/t/tihsu/database/EveNet-BenchMark-ExoHiggs-PairMini
+suite: probe.yaml
+reference: paper_reference.yaml
+backend: local
+
+ray:
+  address: auto
+  wait_timeout: 300
+
+resources:
+  nodes: 4
+  gpus_per_node: 4
+  cpus_per_node: 128
+  cpus_per_worker: 30
+  max_parallel: 3
+  driver_cpus: 2
+
+runtime:
+  driver: [/pscratch/sd/t/tihsu/env/benchmark/bin/python]
+  python: [shifter, '--volume=/tmp/ray:/tmp/ray', python3]
+  analysis_python: [/pscratch/sd/t/tihsu/env/benchmark/bin/python]
+
+conditions:
+  benchmarks: [exotic_higgs_cls, exotic_higgs_asn, exotic_higgs_seg]
+  suite_overrides:
+    # Fine-tuning rates and epoch budget are shared in probe.yaml.
+    # Warmup retains the native recipe's one-epoch setting.
+    # Inherit train_fraction=0.01 to match raw archive dataset_size0.01.
+    # The paper labels that sample as 5% of its 200,000-event reference.
+    # Benchmark sampling applies after the validation split.
+    prediction:
+      batch_size_multiplier: 4
+
+sources:
+  # Export the shared checkout used to train all four candidates, including evenet.
+  EVENET_CORE:
+    path: '${EVENET_PAIR_CORE}'
+  HIGGS_REPO:
+    url: https://github.com/EveNet-HEP/Exotic-Higgs-Study.git
+    revision: c248a12749479f4d58778e76e10449a4d1d0292a
+    local_dir: /pscratch/sd/t/tihsu/database/EveNet-BenchMark/sources/Exotic-Higgs-Study
+
+downloads:
+  HIGGS_DATA:
+    repo_id: Avencast/EveNet-ExoticHiggs-H2a4b
+    repo_type: dataset
+    revision: 277309507ff23cd63d1d7755605e72c2cd2c3699
+    local_dir: /pscratch/sd/t/tihsu/database/EveNet-BenchMark/data/higgs
+    allow_patterns:
+      - 'evenet-train/evenet-ma30/*.parquet'
+      - 'evenet-test/evenet-ma30/*.parquet'
+      - 'evenet-train/evenet-ma30/normalization.pt'
+      - 'evenet-train/evenet-ma30/shape_metadata.json'
+    ignore_patterns: ['*/*/*/*']
+
+variables:
+  HIGGS_TRAIN_DATA: '${HIGGS_DATA}/evenet-train/evenet-ma30'
+  HIGGS_TEST_DATA: '${HIGGS_DATA}/evenet-test/evenet-ma30'
+
+# Override both checkpoint and network for each other candidate at launch.
+# A full pretraining YAML preserves the per-candidate pair/triangle switches.
+candidate:
+  checkpoint: /pscratch/sd/t/tihsu/database/Pretrain-PairRepresentation/mini-1pct-20261013-16gpu-30ep/checkpoints/no_pair/last.ckpt
+  network: '${EVENET_CORE}/share/pretrain_20261013_pair_mini/no_pair.yaml'
+  weight_source: state_dict

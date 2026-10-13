@@ -173,7 +173,7 @@ def run(config, output, timeout=120, ray=False):
             network = resolve_template(path_value(candidate["network"], path.parent))
             train, _ = build_configs(suite, task, path.parent, root / "data/prepared" /
                 task.get("data_group", name), output / name, network.get("network", network),
-                candidate.get("checkpoint"))
+                candidate.get("checkpoint"), resolve_epoch_budget=False)
             if train["options"]["Training"]["Components"].get("Segmentation", {}).get("include"):
                 metadata = json.loads(path_value(task["data"]["assets"]["shape_metadata.json"],
                                                 path.parent).read_text())
@@ -182,7 +182,7 @@ def run(config, output, timeout=120, ray=False):
                 if queries != targets:
                     raise ValueError(f"Segmentation queries={queries}, target slots={targets}; "
                                      "set task.network_overrides.Segmentation.num_queries")
-            return "Resolved native templates and task overrides"
+            return "Resolved native templates and task overrides; event-count epoch budget deferred to prepared data"
 
         record(checks, f"{name}-config", model_config)
         execution = merge(suite.get("execution", {}), task.get("execution", {}))

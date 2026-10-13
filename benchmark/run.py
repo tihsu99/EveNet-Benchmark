@@ -48,7 +48,7 @@ def prediction_batch_size(suite, task, training_batch):
     return batch
 
 
-def build_configs(suite, task, base, prepared, work, network, checkpoint):
+def build_configs(suite, task, base, prepared, work, network, checkpoint, *, resolve_epoch_budget=True):
     core = path_value(suite["core"], base)
     repository = path_value(task["repository"], base)
     template = resolve_template(path_value(task["train_yaml"], base), repository, task.get("template_tokens"))
@@ -56,6 +56,8 @@ def build_configs(suite, task, base, prepared, work, network, checkpoint):
     train["options"] = merge(read_yaml(core / "share/options/options.yaml"), train.get("options", {}))
     # Candidate architecture is explicit; task dimensions/features can be overridden in YAML.
     train["network"] = merge(network, task.get("network_overrides", {}))
+    mode = "pretrained_overrides" if checkpoint else "scratch_overrides"
+    train = merge(train, task.get(mode, {}))
     train = merge(train, suite.get("adaptation", {}))
     train = merge(train, task.get("overrides", {}))
     options = train["options"]
@@ -66,6 +68,20 @@ def build_configs(suite, task, base, prepared, work, network, checkpoint):
     options["Metrics"].setdefault("PairContrastive", {})["enabled"] = False
     options["Metrics"].setdefault("PairRepresentation", {})["enabled"] = False
     training = options["Training"]
+    budget = task.get("epoch_budget", suite.get("epoch_budget"))
+    if budget is not None:
+        keys = ("train_events_threshold", "below_threshold", "at_or_above_threshold")
+        if not isinstance(budget, dict) or any(
+            type(budget.get(key)) is not int or budget[key] < 1 for key in keys
+        ):
+            raise ValueError("epoch_budget requires positive integer threshold and epoch counts")
+        if resolve_epoch_budget:
+            count = json.loads((prepared / "manifest.json").read_text())["counts"]["train"]
+            if type(count) is not int or count < 1:
+                raise ValueError("epoch_budget requires a positive prepared training count")
+            epochs = budget["below_threshold" if count < budget["train_events_threshold"]
+                            else "at_or_above_threshold"]
+            training.update(epochs=epochs, total_epochs=epochs)
     # A downstream task must not inherit pretraining-only truth objectives.
     training["Components"].setdefault("PairContrastive", {})["include"] = False
     training.update({"random_seed": suite["seed"], "model_checkpoint_save_top_k": 1,

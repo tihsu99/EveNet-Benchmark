@@ -28,8 +28,8 @@ preflight:
 prediction:
   batch_size_multiplier: 4
 
-# Epochs, schedule length and early stopping come from each pinned native recipe.
-# Explicit overrides here or per task take precedence for every candidate.
+# Paper fine-tuning is declared per task, separately from scratch training.
+# Explicit overrides here or per task take precedence over mode-specific settings.
 adaptation:
   logger:
     wandb:
@@ -53,6 +53,16 @@ benchmarks:
     train_yaml: ${QE_REPO}/examples/Train_example.yaml
     predict_yaml: ${QE_REPO}/examples/Predict_example.yaml
     normalization_asset: normalization.pt
+    # Sec. II.3 / Table 2: pretrained encoder at 0.1 times the head base LR.
+    # Train_example.yaml is a scratch recipe; loading weights alone does not change LR.
+    pretrained_overrides:
+      options:
+        Training:
+          learning_rate_body: &qe_body_lr 0.000005
+          Components:
+            GlobalEmbedding: {learning_rate: *qe_body_lr}
+            PET: {learning_rate: *qe_body_lr}
+            ObjectEncoder: {learning_rate: *qe_body_lr}
     preflight:
       evaluation:
         imports: [torch, ROOT]
@@ -62,10 +72,23 @@ benchmarks:
       platform: {number_of_workers: 16, batch_size: 1024}
       options:
         Training:
+          learning_rate: &qe_head_lr 0.00005
+          learning_rate_factor: 1.0
           # Cheaper training diagnostics; final prediction restores the native step count.
           diffusion_every_n_epochs: 100
           Components:
-            TruthGeneration: {diffusion_steps: 20}
+            # The pair core adds this projector to the generation optimizer first;
+            # set its rate/type explicitly so it cannot silently select Lion.
+            InvisibleInputProjector:
+              learning_rate: *qe_head_lr
+              optimizer_group: truth_generation
+              optimizer_type: adamw
+              weight_decay: 0.01
+            TruthGeneration:
+              learning_rate: *qe_head_lr
+              optimizer_group: truth_generation
+              optimizer_type: adamw
+              diffusion_steps: 20
     prediction:
       overrides:
         options:
@@ -106,15 +129,44 @@ benchmarks:
     # Explicit quick-probe hypothesis. Change together with the data paths.
     template_tokens: {MASS: "30"}
     normalization_asset: normalization.pt
+    # Sec. IV: all active modules train, with PET/intermediate/head LR 0.1/0.3/1.
+    # Mapping follows Higgs options_pretrain.yaml; distinct groups preserve the rates.
+    pretrained_overrides:
+      options:
+        Training:
+          learning_rate_body: &higgs_body_lr 0.00004
+          learning_rate_intermediate: &higgs_intermediate_lr 0.00012
+          Components:
+            GlobalEmbedding:
+              learning_rate: *higgs_intermediate_lr
+              optimizer_group: intermediate
+              optimizer_type: adamw
+            PET:
+              learning_rate: *higgs_body_lr
+              optimizer_group: body
+              optimizer_type: adamw
+            ObjectEncoder:
+              learning_rate: *higgs_intermediate_lr
+              optimizer_group: intermediate
+              optimizer_type: adamw
+    # Paper epoch budget applies to scratch and pretrained candidates.
+    epoch_budget:
+      train_events_threshold: 99000
+      below_threshold: 100
+      at_or_above_threshold: 50
     overrides:
       # GPUs: paper Table 2; per-worker batch: pinned configs/train.yaml.
       platform: &higgs_platform {number_of_workers: 4, batch_size: 2048}
       options:
-        Training:
+        Training: &higgs_training
+          learning_rate: &higgs_head_lr 0.0004
+          learning_rate_factor: 1.0
+          learning_rate_warm_up_factor: 1.0
+          EarlyStopping: {patience: 20}
           Components:
-            Classification: {include: true}
-            Assignment: {include: false}
-            Segmentation: {include: false}
+            Classification: {include: true, learning_rate: *higgs_head_lr, optimizer_type: adamw}
+            Assignment: {include: false, learning_rate: *higgs_head_lr, optimizer_type: adamw}
+            Segmentation: {include: false, learning_rate: *higgs_head_lr, optimizer_type: adamw}
           ProgressiveTraining: &higgs_schedule
             stages:
               - name: fixed_head_adaptation
@@ -132,7 +184,9 @@ benchmarks:
       train: ["${HIGGS_TRAIN_DATA}/*.parquet"]
       validation_fraction: 0.2
       evaluation: ["${HIGGS_TEST_DATA}/*.parquet"]
-      train_fraction: 0.05
+      # Match raw archive dataset_size0.01 (paper label: 5% of 200 K).
+      # This fraction applies after the validation split.
+      train_fraction: 0.01
       event_id_columns: []
       assets:
         normalization.pt: ${HIGGS_TRAIN_DATA}/normalization.pt
@@ -159,11 +213,12 @@ benchmarks:
       platform: *higgs_platform
       options:
         Training:
+          <<: *higgs_training
           ProgressiveTraining: *higgs_schedule
           Components:
-            Classification: {include: true}
-            Assignment: {include: true}
-            Segmentation: {include: false}
+            Classification: {include: true, learning_rate: *higgs_head_lr, optimizer_type: adamw}
+            Assignment: {include: true, learning_rate: *higgs_head_lr, optimizer_type: adamw}
+            Segmentation: {include: false, learning_rate: *higgs_head_lr, optimizer_type: adamw}
 
   exotic_higgs_seg:
     <<: *higgs_task
@@ -176,11 +231,12 @@ benchmarks:
       platform: *higgs_platform
       options:
         Training:
+          <<: *higgs_training
           ProgressiveTraining: *higgs_schedule
           Components:
-            Classification: {include: true}
-            Assignment: {include: false}
-            Segmentation: {include: true}
+            Classification: {include: true, learning_rate: *higgs_head_lr, optimizer_type: adamw}
+            Assignment: {include: false, learning_rate: *higgs_head_lr, optimizer_type: adamw}
+            Segmentation: {include: true, learning_rate: *higgs_head_lr, optimizer_type: adamw}
 
   anomaly:
     enabled: true
@@ -189,6 +245,23 @@ benchmarks:
     train_yaml: ${ANOMALY_REPO}/config/full_train.yaml
     workflow_yaml: ${ANOMALY_REPO}/config/workflow.yaml
     normalization_asset: normalization.pt
+    # Sec. VI / Table 2, mapped as in the pinned AD options.yaml.
+    # GlobalEmbedding is a full-rate conditioning module; PET/ObjectEncoder use 0.1x.
+    pretrained_overrides:
+      options:
+        Training:
+          learning_rate_body: &ad_body_lr 0.00005
+          Components:
+            PET: {learning_rate: *ad_body_lr}
+            ObjectEncoder: {learning_rate: *ad_body_lr}
+    # The paper's scratch baseline uses uniform LR, unlike the native pretrained YAML.
+    scratch_overrides:
+      options:
+        Training:
+          learning_rate_body: &ad_head_lr 0.0005
+          Components:
+            PET: {learning_rate: *ad_head_lr}
+            ObjectEncoder: {learning_rate: *ad_head_lr}
     preflight:
       prediction:
         imports: [torch, numdifftools]
@@ -203,6 +276,19 @@ benchmarks:
         number_of_workers: 4
         batch_size: 4096
         resources_per_worker: {CPU: 28, GPU: 1}
+      options:
+        Training:
+          learning_rate: *ad_head_lr
+          learning_rate_factor: 1.0
+          Components:
+            GlobalEmbedding:
+              learning_rate: *ad_head_lr
+              optimizer_group: conditioning
+              optimizer_type: adamw
+            PET: {optimizer_group: body, optimizer_type: adamw}
+            ObjectEncoder: {optimizer_group: object_encoder, optimizer_type: adamw}
+            GlobalGeneration: {learning_rate: *ad_head_lr, optimizer_type: adamw}
+            ReconGeneration: {learning_rate: *ad_head_lr, optimizer_type: adamw}
     data:
       train: ["${ANOMALY_DATA}/SB/data.parquet"]
       fold: {count: 5, index: 0}

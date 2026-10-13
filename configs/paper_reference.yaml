@@ -17,49 +17,45 @@ benchmarks:
     source_sha256: b55c94bf4986abb58dcf42f47521cd18464556ac0e9dea0110cfe279ee47c378
     selection:
       model: Nominal
-      train_size: 2950
-    context: Fully pretrained Nominal model, 2950 K training events; stored absolute concurrence uncertainty. Historical
-      table lacks truth bias, selection efficiency and covariance. Pairing accuracy is not selection efficiency.
-      Different data and training budget from the 5% probe.
-    plot_context: Full model, 2950 K training events; statistical concurrence uncertainty. Other matching metrics
-      unavailable.
+      train_size: 148
+      training_fraction: 0.05
+      paper_reference_events: 1000000
+      paper_training_fraction: 0.148
+      paper_training_label: 15%
+    context: Fully pretrained Nominal model, 148 K training events; 5% of the archived 2950 K full sample,
+      but approximately 15% of the paper reference dataset of 1 M events. Stored absolute concurrence uncertainty.
+      Historical table lacks truth bias, selection efficiency and covariance. Pairing accuracy is not selection
+      efficiency. No paper 5% (50 K) row is available in this table; this is not a matched paper-5% reference.
+      Identical probe events, selections and training schedule are not certified.
+    plot_context: 'Full model, 148 K events (paper: 15% of 1 M; archive: 5% of 2950 K). Statistical concurrence
+      uncertainty; no paper 5% row available.'
     metrics:
       trace_abs_bias: null
       observable_abs_bias: null
-      observable_uncertainty: 0.005058945
+      observable_uncertainty: 0.005110662
       selection_efficiency: null
   exotic_higgs:
     headline: auc
-    source: data/BSM/fit/evenet-pretrain-ablation4-assignment-on-segmentation-on-dataset_size1.0/summary/roc_results.npz
-    source_sha256: 1b6f1b13a47fb1cb02b3647a654cf84dbd761d2de0587670059961af0361ed4d
+    source: data/BSM/fit/evenet-pretrain-ablation4-assignment-on-segmentation-on-dataset_size0.01/summary/roc_results.npz
+    source_sha256: 4d936ef60cab7f136100cd7966840b031dd3ab45bc1c76041a927b5ec37c7386
     selection:
       mass: haa_ma30
       region: SR
-      training_fraction: 1.0
+      training_fraction: 0.01
       assignment: true
       segmentation: true
-    context: 'Full pretrained model (ablation4 in archived directory names), 100% task training, mass 30 GeV, assignment
-      and segmentation heads enabled. AUC is stored SR AUC. Rejection and SIC are derived from the archived ROC
-      grid at the smallest stored TPR >= 0.7: TPR=0.7007007007007007, FPR=0.09445065899394896. SIC is TPR/sqrt(FPR),
-      not the paper maximum SIC. The stored grid differs from the probe''s actual-threshold selection. Native selections
-      and weight conventions are not certified identical. Bands propagate the stored FPR-unc=0.004503190324277362
-      at fixed TPR using the native first-order formulas: sigma_rejection=sigma_FPR/FPR^2 and sigma_SIC=0.5*TPR*sigma_FPR/FPR^1.5.
-      This is the archived histogram-weight Poisson-style uncertainty; it excludes signal-efficiency and model uncertainty.'
-    plot_context: Full model, 100% training, mass 30 GeV; TPR = 0.7007. Bands = propagated native FPR uncertainty,
-      fixed TPR.
+      training_events: 10000
+      paper_reference_events: 200000
+      paper_training_fraction: 0.05
+      paper_training_label: 5%
+    context: The paper 5% reference is 10 K events (5% of 200 K; archive dataset_size0.01 of 1 M). The archived
+      Cls+Asn+Seg file contains masses 40 and 60 GeV, but no 30 GeV result. Metrics are unavailable; no substitution
+      from a larger training sample.
+    plot_context: 'Cls+Asn+Seg, mass 30 GeV: no archived paper-5% (10 K events) result.'
     metrics:
-      auc: 0.8920145119815518
-      background_rejection: 10.587538622298714
-      sic: 2.279974845746229
-    intervals:
-      background_rejection:
-        low: 10.082749116437215
-        high: 11.092328128160213
-        label: Native FPR propagation
-      sic:
-        low: 2.2256228657054233
-        high: 2.334326825787035
-        label: Native FPR propagation
+      auc: null
+      background_rejection: null
+      sic: null
   anomaly:
     headline: calibration_magnitude
     source: data/AD/boostrap_summary.json
@@ -68,11 +64,12 @@ benchmarks:
       model: EveNet-f.t.(Cls+Gen)-calibrated-OS
       aggregation: median
       entries: 8
-    context: Full model, calibrated OS sample; median of the 8 archived ensemble entries, matching the paper plotting
-      aggregation. Calibration magnitude comes from before cut; coverage, MMD and efficiency come from after cut.
-      Values remain fractions/native units, not paper percentage labels. This is an ensemble reference, not the
-      probe's single fixed fold. Confirm OS selection when configuring the probe data paths. Bands are the 16th
-      to 84th percentiles of archived entries, not uncertainty on the median or a probe seed CI.
+    context: Full model, calibrated OS sample; median of the 8 archived ensemble entries, matching the paper
+      plotting aggregation. Calibration magnitude comes from before cut; coverage, MMD and efficiency come
+      from after cut. Values remain fractions/native units, not paper percentage labels. This is an ensemble
+      reference, not the probe's single fixed fold. Confirm OS selection when configuring the probe data paths.
+      Bands are the 16th to 84th percentiles of archived entries, not uncertainty on the median or a probe
+      seed CI.
     plot_context: Full model, calibrated OS; median of 8 entries. Bands = 16-84% ensemble spread, not a confidence
       interval on the median.
     metrics:
@@ -99,96 +96,114 @@ benchmarks:
         label: 16-84% ensemble
   exotic_higgs_cls:
     headline: auc
-    source: data/BSM/fit/evenet-pretrain-ablation4-assignment-off-segmentation-off-dataset_size1.0/summary/roc_results.npz
-    source_sha256: ee31578fdcd107ef7261680d46619de43e7d38401e281f3de586b27f7376a2bc
+    source: data/BSM/fit/evenet-pretrain-ablation4-assignment-off-segmentation-off-dataset_size0.01/summary/roc_results.npz
+    source_sha256: 91d86743477959b7ea90f30f030a164f6602552eec41b9c67bd00b9ededde2aa
     selection:
       mass: haa_ma30
       region: SR
-      training_fraction: 1.0
+      training_fraction: 0.01
       head: Cls
       assignment: false
       segmentation: false
-    context: 'Fully pretrained model, Cls, mass 30 GeV, 100% training. Stored SR weighted AUC. Rejection and SIC
-      at first stored TPR >= 0.7: TPR=0.7007007007007007, FPR=0.09263267598502506, sigma_FPR=0.004559799864004579.
+      training_events: 10000
+      paper_reference_events: 200000
+      paper_training_fraction: 0.05
+      paper_training_label: 5%
+    context: 'Fully pretrained model, Cls, mass 30 GeV, 10 K training events: 5% of the paper reference dataset
+      (200 K), corresponding to archive dataset_size0.01 (1% of 1 M). Stored SR weighted AUC. Rejection and
+      SIC at first stored TPR >= 0.7: TPR=0.7007007007007007, FPR=0.2139446806673692, sigma_FPR=0.009853293030681715.
       Native first-order uncertainty propagation at fixed TPR: sigma_R=sigma_FPR/FPR^2; sigma_SIC=0.5*TPR*sigma_FPR/FPR^1.5.
-      Histogram-weight uncertainty excludes signal-efficiency and model uncertainty. External paper selection and
-      budget differ from the probe.'
-    plot_context: Mass 30 GeV; 100% training. Each head has its own paper reference; bands propagate native FPR
-      uncertainty at fixed TPR.
+      SIC is not the paper maximum SIC. Histogram-weight uncertainty excludes signal-efficiency and model uncertainty.
+      Probe train_fraction=0.01 matches the raw archive fraction and is applied after validation splitting.
+      Actual training counts depend on the input rows; identical events and training budgets are not certified.'
+    plot_context: 'Mass 30 GeV; paper 5% = 10 K / 200 K events (archive: 1% of 1 M). Each head has its own
+      reference; bands propagate native FPR uncertainty at fixed TPR.'
     metrics:
-      auc: 0.894120537065225
-      background_rejection: 10.795326696182883
-      sic: 2.302239212507561
+      auc: 0.8127534359025557
+      background_rejection: 4.6741054597882306
+      sic: 1.5148924644193604
     intervals:
       background_rejection:
-        low: 10.263931821990786
-        high: 11.32672157037498
+        low: 4.458837986869812
+        high: 4.8893729327066495
         label: Native FPR propagation
       sic:
-        low: 2.2455758918355175
-        high: 2.3589025331796045
+        low: 1.4800080276683882
+        high: 1.5497769011703326
         label: Native FPR propagation
   exotic_higgs_asn:
     headline: auc
-    source: data/BSM/fit/evenet-pretrain-ablation4-assignment-on-segmentation-off-dataset_size1.0/summary/roc_results.npz
-    source_sha256: db93524ec5c7fd9c1cbc79269a68a6366daab670ef160472ca3d7bf27bcdaffa
+    source: data/BSM/fit/evenet-pretrain-ablation4-assignment-on-segmentation-off-dataset_size0.01/summary/roc_results.npz
+    source_sha256: 3dbcb2e4549da2516cf8a4b51b6f44e4d66448a5bd003cccc5559151d6b5476f
     selection:
       mass: haa_ma30
       region: SR
-      training_fraction: 1.0
+      training_fraction: 0.01
       head: Cls+Asn
       assignment: true
       segmentation: false
-    context: 'Fully pretrained model, Cls+Asn, mass 30 GeV, 100% training. Stored SR weighted AUC. Rejection and
-      SIC at first stored TPR >= 0.7: TPR=0.7007007007007007, FPR=0.10068653956910445, sigma_FPR=0.005156601130544746.
+      training_events: 10000
+      paper_reference_events: 200000
+      paper_training_fraction: 0.05
+      paper_training_label: 5%
+    context: 'Fully pretrained model, Cls+Asn, mass 30 GeV, 10 K training events: 5% of the paper reference
+      dataset (200 K), corresponding to archive dataset_size0.01 (1% of 1 M). Stored SR weighted AUC. Rejection
+      and SIC at first stored TPR >= 0.7: TPR=0.7007007007007007, FPR=0.211920981458671, sigma_FPR=0.010047436254374462.
       Native first-order uncertainty propagation at fixed TPR: sigma_R=sigma_FPR/FPR^2; sigma_SIC=0.5*TPR*sigma_FPR/FPR^1.5.
-      Histogram-weight uncertainty excludes signal-efficiency and model uncertainty. External paper selection and
-      budget differ from the probe.'
-    plot_context: Mass 30 GeV; 100% training. Each head has its own paper reference; bands propagate native FPR
-      uncertainty at fixed TPR.
+      SIC is not the paper maximum SIC. Histogram-weight uncertainty excludes signal-efficiency and model uncertainty.
+      Probe train_fraction=0.01 matches the raw archive fraction and is applied after validation splitting.
+      Actual training counts depend on the input rows; identical events and training budgets are not certified.'
+    plot_context: 'Mass 30 GeV; paper 5% = 10 K / 200 K events (archive: 1% of 1 M). Each head has its own
+      reference; bands propagate native FPR uncertainty at fixed TPR.'
     metrics:
-      auc: 0.8890944008312284
-      background_rejection: 9.931814165821713
-      sic: 2.208242907470255
+      auc: 0.8155350126624545
+      background_rejection: 4.7187399431472565
+      sic: 1.522108367723685
     intervals:
       background_rejection:
-        low: 9.423162221132657
-        high: 10.44046611051077
+        low: 4.495018636963192
+        high: 4.942461249331321
         label: Native FPR propagation
       sic:
-        low: 2.1516959851015347
-        high: 2.2647898298389757
+        low: 1.4860258460882891
+        high: 1.558190889359081
         label: Native FPR propagation
   exotic_higgs_seg:
     headline: auc
-    source: data/BSM/fit/evenet-pretrain-ablation4-assignment-off-segmentation-on-dataset_size1.0/summary/roc_results.npz
-    source_sha256: f57571a637cf64be6df18085ef8d5e20554f17d9b35e7ecc449d984b93a06a92
+    source: data/BSM/fit/evenet-pretrain-ablation4-assignment-off-segmentation-on-dataset_size0.01/summary/roc_results.npz
+    source_sha256: 6a29e5d7a98593a634fca8a969ce8b49db7bd3d6145ec6dcca15717e27281571
     selection:
       mass: haa_ma30
       region: SR
-      training_fraction: 1.0
+      training_fraction: 0.01
       head: Cls+Seg
       assignment: false
       segmentation: true
-    context: 'Fully pretrained model, Cls+Seg, mass 30 GeV, 100% training. Stored SR weighted AUC. Rejection and
-      SIC at first stored TPR >= 0.7: TPR=0.7007007007007007, FPR=0.09187717802549668, sigma_FPR=0.004323518869019249.
+      training_events: 10000
+      paper_reference_events: 200000
+      paper_training_fraction: 0.05
+      paper_training_label: 5%
+    context: 'Fully pretrained model, Cls+Seg, mass 30 GeV, 10 K training events: 5% of the paper reference
+      dataset (200 K), corresponding to archive dataset_size0.01 (1% of 1 M). Stored SR weighted AUC. Rejection
+      and SIC at first stored TPR >= 0.7: TPR=0.7007007007007007, FPR=0.2336600229309976, sigma_FPR=0.009829224820968837.
       Native first-order uncertainty propagation at fixed TPR: sigma_R=sigma_FPR/FPR^2; sigma_SIC=0.5*TPR*sigma_FPR/FPR^1.5.
-      Histogram-weight uncertainty excludes signal-efficiency and model uncertainty. External paper selection and
-      budget differ from the probe.'
-    plot_context: Mass 30 GeV; 100% training. Each head has its own paper reference; bands propagate native FPR
-      uncertainty at fixed TPR.
+      SIC is not the paper maximum SIC. Histogram-weight uncertainty excludes signal-efficiency and model uncertainty.
+      Probe train_fraction=0.01 matches the raw archive fraction and is applied after validation splitting.
+      Actual training counts depend on the input rows; identical events and training budgets are not certified.'
+    plot_context: 'Mass 30 GeV; paper 5% = 10 K / 200 K events (archive: 1% of 1 M). Each head has its own
+      reference; bands propagate native FPR uncertainty at fixed TPR.'
     metrics:
-      auc: 0.893814024023505
-      background_rejection: 10.884095718770245
-      sic: 2.311685388841234
+      auc: 0.7984048557768548
+      background_rejection: 4.279722253966016
+      sic: 1.4495738449084619
     intervals:
       background_rejection:
-        low: 10.371916369952459
-        high: 11.396275067588032
+        low: 4.0996899502888136
+        high: 4.459754557643218
         label: Native FPR propagation
       sic:
-        low: 2.2572942135097627
-        high: 2.3660765641727055
+        low: 1.4190847029545361
+        high: 1.4800629868623876
         label: Native FPR propagation
 plot_style:
   font_family: [Graphik Naturel, GraphikNaturel, Arial, DejaVu Sans]
