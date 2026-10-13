@@ -31,6 +31,11 @@ conditions:
     # Inherit train_fraction=0.01 to match raw archive dataset_size0.01.
     # The paper labels that sample as 5% of its 200,000-event reference.
     # Benchmark sampling applies after the validation split.
+    benchmarks:
+      exotic_higgs_cls:
+        overrides:
+          platform:
+            batch_size: 1024
     prediction:
       batch_size_multiplier: 4
 
