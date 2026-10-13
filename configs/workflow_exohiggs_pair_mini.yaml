@@ -35,7 +35,7 @@ conditions:
       exotic_higgs_cls:
         overrides:
           platform:
-            batch_size: 1024
+            batch_size: 512
     prediction:
       batch_size_multiplier: 4
 
